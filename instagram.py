@@ -46,6 +46,17 @@ class DirectInstagramClient:
         cl = Client()
         cl.delay_range = [2, 5]
 
+        def custom_challenge_code_handler(username, choice):
+            code = os.getenv("IG_2FA_CODE", "").strip()
+            if code:
+                return code
+            try:
+                return input(f"\n🔐 Enter Instagram verification code sent to phone/email for @{username} (Choice {choice}): ").strip()
+            except Exception:
+                return ""
+
+        cl.challenge_code_handler = custom_challenge_code_handler
+
         # 1. Try to reuse existing authenticated session from session.json
         if SESSION_FILE.exists():
             try:
@@ -79,6 +90,7 @@ class DirectInstagramClient:
         cl.dump_settings(str(SESSION_FILE))
         self._client = cl
         return cl
+
 
     def validate_credentials(self) -> Tuple[bool, str]:
         """Verify username & password and connection to Instagram."""
