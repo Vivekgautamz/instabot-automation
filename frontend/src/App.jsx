@@ -126,12 +126,14 @@ export default function App() {
   };
 
   const handleMetaLogin = () => {
-    const metaAppId = '1063180003141134';
+    const metaAppId = import.meta.env.VITE_META_APP_ID || '1063180003141134';
     const redirectUri = window.location.origin + '/auth/instagram/callback';
-    const scope = 'instagram_business_basic,instagram_business_content_publish';
-    const authUrl = `https://www.instagram.com/oauth/authorize?enable_fb_login=0&force_authentication=1&client_id=${metaAppId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${scope}`;
+    const scope = 'instagram_basic,instagram_content_publish,pages_show_list,pages_read_engagement';
+    // Official Facebook OAuth Dialog for Instagram Professional Accounts
+    const authUrl = `https://www.facebook.com/v20.0/dialog/oauth?client_id=${metaAppId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scope)}&response_type=code`;
     window.open(authUrl, '_blank', 'width=600,height=700');
   };
+
 
   return (
     <div className="app-container">

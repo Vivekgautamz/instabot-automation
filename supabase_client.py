@@ -21,7 +21,7 @@ class SupabaseManager:
                 from supabase import create_client, Client
                 self.client: Optional[Client] = create_client(self.url, self.key)
             except Exception as e:
-                print(f"⚠️ Supabase client initialization warning: {e}")
+                print(f"[Supabase Warning] Client initialization warning: {e}")
 
     def is_configured(self) -> bool:
         return self.client is not None
@@ -35,7 +35,7 @@ class SupabaseManager:
             if res.data:
                 return res.data[0].get("setting_value", {})
         except Exception as e:
-            print(f"⚠️ Error fetching app setting '{setting_key}': {e}")
+            print(f"[Supabase Error] Error fetching app setting '{setting_key}': {e}")
         return None
 
     def update_app_settings(self, setting_key: str, setting_value: Dict[str, Any]) -> bool:
@@ -49,7 +49,7 @@ class SupabaseManager:
             }, on_conflict="setting_key").execute()
             return True
         except Exception as e:
-            print(f"⚠️ Error updating app setting '{setting_key}': {e}")
+            print(f"[Supabase Error] Error updating app setting '{setting_key}': {e}")
             return False
 
     def log_activity(self, event_type: str, message: str, account_id: Optional[str] = None, details: Optional[Dict] = None) -> None:
@@ -66,7 +66,8 @@ class SupabaseManager:
                 payload["account_id"] = account_id
             self.client.table("activity_logs").insert(payload).execute()
         except Exception as e:
-            print(f"⚠️ Error logging activity to Supabase: {e}")
+            print(f"[Supabase Error] Error logging activity: {e}")
+
 
     def get_pending_media(self, limit: int = 10) -> List[Dict[str, Any]]:
         """Retrieve ready media from media_queue."""
@@ -76,7 +77,7 @@ class SupabaseManager:
             res = self.client.table("media_queue").select("*").eq("status", "ready").limit(limit).execute()
             return res.data or []
         except Exception as e:
-            print(f"⚠️ Error fetching pending media from Supabase: {e}")
+            print(f"[Supabase Error] Error fetching pending media: {e}")
             return []
 
     def record_posting_history(
@@ -109,7 +110,7 @@ class SupabaseManager:
             self.client.table("posting_history").insert(payload).execute()
             return True
         except Exception as e:
-            print(f"⚠️ Error recording posting history to Supabase: {e}")
+            print(f"[Supabase Error] Error recording posting history: {e}")
             return False
 
 _supabase_manager: Optional[SupabaseManager] = None
