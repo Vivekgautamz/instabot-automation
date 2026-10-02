@@ -369,14 +369,15 @@ export default function App() {
                 Manage connected accounts via Direct Login, Session Cookie, or Meta Graph API.
               </p>
             </div>
-            <div style={{ display: 'flex', gap: '10px' }}>
-              <button className="btn" onClick={() => setShowAddModal(true)}>
-                + Connect Account / ID
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <button className="btn" style={{ background: 'rgba(56, 189, 248, 0.15)', borderColor: 'rgba(56, 189, 248, 0.4)', color: '#38bdf8', fontWeight: 600, padding: '10px 18px', borderRadius: '10px' }} onClick={() => setShowAddModal(true)}>
+                + Add Instagram Account
               </button>
               <button className="ig-gradient-btn" style={{ padding: '10px 18px', borderRadius: '10px' }} onClick={handleMetaLogin}>
                 + Authorize Meta OAuth
               </button>
             </div>
+
           </div>
 
           <div style={{ display: 'grid', gap: '16px' }}>
