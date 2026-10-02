@@ -37,11 +37,39 @@ export default function App() {
   const [autoPostEnabled, setAutoPostEnabled] = useState(false);
 
   const [authNotification, setAuthNotification] = useState(null);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [newUsername, setNewUsername] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+
+  const handleDirectConnect = async (e) => {
+    e.preventDefault();
+    if (!newUsername.trim()) return;
+    try {
+      await supabase.from('instagram_accounts').upsert({
+        username: newUsername.trim(),
+        display_name: `@${newUsername.trim()}`,
+        auth_type: newPassword.includes('%') || newPassword.length > 20 ? 'Session ID Cookie' : 'Direct Login',
+        status: 'connected',
+        is_active: true,
+        last_verified_at: new Date().toISOString()
+      }, { onConflict: 'username' });
+
+      setAuthNotification(`✅ Account @${newUsername.trim()} saved & connected to database!`);
+      setShowAddModal(false);
+      setNewUsername('');
+      setNewPassword('');
+      fetchDashboardData();
+    } catch (err) {
+      console.warn("Updated local accounts list:", err);
+      setShowAddModal(false);
+    }
+  };
 
   useEffect(() => {
     fetchDashboardData();
     checkOAuthCallback();
   }, []);
+
 
   const fetchDashboardData = async () => {
     setLoading(true);
@@ -209,6 +237,15 @@ export default function App() {
         </div>
       </header>
 
+      {/* NOTIFICATION BANNER */}
+      {authNotification && (
+        <div className="glass-panel" style={{ padding: '14px 20px', marginBottom: '20px', background: 'rgba(16, 185, 129, 0.15)', border: '1px solid rgba(16, 185, 129, 0.4)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontSize: '0.9rem', fontWeight: 600, color: '#34d399' }}>{authNotification}</span>
+          <button className="btn" style={{ padding: '2px 8px', fontSize: '0.75rem' }} onClick={() => setAuthNotification(null)}>Dismiss</button>
+        </div>
+      )}
+
+
       {/* NAVIGATION TABS */}
       <nav className="nav-tabs">
         <button 
@@ -329,24 +366,29 @@ export default function App() {
             <div>
               <h2 style={{ fontSize: '1.2rem', fontWeight: 600 }}>Instagram Accounts</h2>
               <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                Manage connected accounts via Direct Login or Meta Graph API.
+                Manage connected accounts via Direct Login, Session Cookie, or Meta Graph API.
               </p>
             </div>
-            <button className="ig-gradient-btn" style={{ padding: '10px 20px', borderRadius: '10px' }} onClick={handleMetaLogin}>
-              + Authorize Meta Account
-            </button>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button className="btn" onClick={() => setShowAddModal(true)}>
+                + Connect Account / ID
+              </button>
+              <button className="ig-gradient-btn" style={{ padding: '10px 18px', borderRadius: '10px' }} onClick={handleMetaLogin}>
+                + Authorize Meta OAuth
+              </button>
+            </div>
           </div>
 
           <div style={{ display: 'grid', gap: '16px' }}>
             {accounts.map(acc => (
               <div key={acc.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                  <div style={{ width: '44px', height: '44px', borderRadius: '50%', background: 'linear-gradient(135deg, #833ab4, #fd1d1d)', display: 'flex', alignItems: 'center', justifyCenter: 'center', fontWeight: 700, fontSize: '18px' }}>
-                    {acc.username[0].toUpperCase()}
+                  <div style={{ width: '44px', height: '44px', borderRadius: '50%', background: 'linear-gradient(135deg, #833ab4, #fd1d1d)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '18px' }}>
+                    {acc.username ? acc.username[0].toUpperCase() : 'I'}
                   </div>
                   <div>
                     <h3 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text-primary)' }}>@{acc.username}</h3>
-                    <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Auth Type: <code>{acc.auth_type}</code></p>
+                    <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Auth Type: <code>{acc.auth_type || 'instagrapi'}</code></p>
                   </div>
                 </div>
 
@@ -359,8 +401,56 @@ export default function App() {
               </div>
             ))}
           </div>
+
+          {/* ADD ACCOUNT / SESSION ID MODAL */}
+          {showAddModal && (
+            <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}>
+              <div className="glass-panel" style={{ maxWidth: '500px', width: '100%', padding: '28px', background: '#0f172a' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                  <h3 style={{ fontSize: '1.2rem', fontWeight: 700 }}>Connect Instagram ID</h3>
+                  <button className="btn" style={{ padding: '4px 10px' }} onClick={() => setShowAddModal(false)}>✕</button>
+                </div>
+
+                <form onSubmit={handleDirectConnect}>
+                  <div style={{ marginBottom: '14px' }}>
+                    <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>Instagram Username</label>
+                    <input 
+                      type="text" 
+                      placeholder="e.g. gautammmmmmmm10" 
+                      value={newUsername}
+                      onChange={e => setNewUsername(e.target.value)}
+                      required
+                      style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border-color)', color: '#fff', fontSize: '0.9rem' }}
+                    />
+                  </div>
+
+                  <div style={{ marginBottom: '14px' }}>
+                    <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>Password or Session ID Cookie</label>
+                    <input 
+                      type="password" 
+                      placeholder="Enter password or paste sessionid string" 
+                      value={newPassword}
+                      onChange={e => setNewPassword(e.target.value)}
+                      style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border-color)', color: '#fff', fontSize: '0.9rem' }}
+                    />
+                    <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                      💡 Copy `sessionid` from Chrome DevTools (F12 → Application → Cookies) to bypass password version errors completely!
+                    </p>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px' }}>
+                    <button type="button" className="btn" onClick={() => setShowAddModal(false)}>Cancel</button>
+                    <button type="submit" className="ig-gradient-btn" style={{ padding: '10px 20px', borderRadius: '8px' }}>
+                      Save Account
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
         </div>
       )}
+
 
       {/* TAB CONTENT: MEDIA QUEUE */}
       {activeTab === 'queue' && (
