@@ -46,6 +46,16 @@ class DirectInstagramClient:
         cl = Client()
         cl.delay_range = [2, 5]
 
+        session_id = os.getenv("IG_SESSION_ID", "").strip()
+        if session_id:
+            try:
+                cl.login_by_sessionid(session_id)
+                cl.dump_settings(str(SESSION_FILE))
+                self._client = cl
+                return cl
+            except Exception:
+                pass
+
         def custom_challenge_code_handler(username, choice):
             code = os.getenv("IG_2FA_CODE", "").strip()
             if code:
@@ -56,6 +66,7 @@ class DirectInstagramClient:
                 return ""
 
         cl.challenge_code_handler = custom_challenge_code_handler
+
 
         # 1. Try to reuse existing authenticated session from session.json
         if SESSION_FILE.exists():

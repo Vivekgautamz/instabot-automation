@@ -68,7 +68,20 @@ def login_interactive():
     cl = Client()
     cl.delay_range = [2, 5]
 
+    session_id = os.getenv("IG_SESSION_ID", "").strip()
+    if session_id:
+        print(f"\nLogging in using IG_SESSION_ID for @{username}...")
+        try:
+            cl.login_by_sessionid(session_id)
+            cl.dump_settings(str(SESSION_FILE))
+            info = cl.account_info()
+            print(f"\n[OK] Logged in as @{info.username} using sessionid - session saved!")
+            return
+        except Exception as e:
+            print(f"[ERROR] Session ID login failed: {e}")
+
     print(f"\nLogging in as @{username}...")
+
 
     login_exc = None
     login_json = None
