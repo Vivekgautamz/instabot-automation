@@ -43,18 +43,19 @@ export default function App() {
 
   const handleDirectConnect = async (e) => {
     e.preventDefault();
-    if (!newUsername.trim()) return;
+    const cleanUsername = newUsername.trim().replace(/^@/, '');
+    if (!cleanUsername) return;
     try {
       await supabase.from('instagram_accounts').upsert({
-        username: newUsername.trim(),
-        display_name: `@${newUsername.trim()}`,
+        username: cleanUsername,
+        display_name: `@${cleanUsername}`,
         auth_type: newPassword.includes('%') || newPassword.length > 20 ? 'Session ID Cookie' : 'Direct Login',
         status: 'connected',
         is_active: true,
         last_verified_at: new Date().toISOString()
       }, { onConflict: 'username' });
 
-      setAuthNotification(`✅ Account @${newUsername.trim()} saved & connected to database!`);
+      setAuthNotification(`✅ Account @${cleanUsername} saved & connected to database!`);
       setShowAddModal(false);
       setNewUsername('');
       setNewPassword('');
@@ -67,140 +68,8 @@ export default function App() {
 
   useEffect(() => {
     fetchDashboardData();
-    checkOAuthCallback();
   }, []);
 
-
-  const fetchDashboardData = async () => {
-    setLoading(true);
-    try {
-      // Fetch Accounts
-      const { data: accountsData } = await supabase.from('instagram_accounts').select('*');
-      if (accountsData && accountsData.length > 0) {
-        setAccounts(accountsData);
-      } else {
-        setAccounts([
-          {
-            id: '1',
-            username: 'poetghazipur61',
-            display_name: 'Poet Ghazipur 61',
-            auth_type: 'instagrapi',
-            status: 'connected',
-            is_active: true,
-            last_verified_at: new Date().toISOString(),
-          }
-        ]);
-      }
-
-      // Fetch Queue
-      const { data: queueData } = await supabase.from('media_queue').select('*');
-      if (queueData && queueData.length > 0) {
-        setMediaQueue(queueData);
-      } else {
-        setMediaQueue([
-          {
-            id: 'q1',
-            filename: 'image_01.jpg',
-            media_type: 'image',
-            caption: 'Aesthetic poetry vibe ✨ #poetghazipur61 #shayari',
-            status: 'ready',
-            created_at: new Date().toISOString()
-          },
-          {
-            id: 'q2',
-            filename: 'romance_reel_02.mp4',
-            media_type: 'reel',
-            caption: 'Trending romance reel 🖤 #reels #love #trending',
-            status: 'ready',
-            created_at: new Date().toISOString()
-          }
-        ]);
-      }
-
-      // Fetch History
-      const { data: historyData } = await supabase.from('posting_history').select('*');
-      if (historyData && historyData.length > 0) {
-        setHistory(historyData);
-      } else {
-        setHistory([
-          {
-            id: 'h1',
-            media_filename: 'posted_image_246.jpg',
-            account_username: 'poetghazipur61',
-            status: 'published',
-            instagram_media_id: '1802948192301923',
-            posted_at: new Date(Date.now() - 3600000).toISOString()
-          },
-          {
-            id: 'h2',
-            media_filename: 'posted_reel_102.mp4',
-            account_username: 'poetghazipur61',
-            status: 'published',
-            instagram_media_id: '1792019301923841',
-            posted_at: new Date(Date.now() - 86400000).toISOString()
-          }
-        ]);
-      }
-
-      // Fetch Settings
-      const { data: settingsData } = await supabase.from('app_settings').select('*').eq('setting_key', 'auto_post');
-      if (settingsData && settingsData.length > 0) {
-        setAutoPostEnabled(settingsData[0].setting_value?.enabled || false);
-      }
-
-    } catch (err) {
-      console.warn("Using fallback initial data until Supabase query connects:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-
-  const checkOAuthCallback = async () => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const code = urlParams.get('code');
-    if (code || window.location.pathname.includes('/auth/instagram/callback')) {
-      setAuthNotification('🎉 Meta Instagram Authorization Received! Connecting account...');
-      try {
-        await supabase.from('instagram_accounts').upsert({
-          username: 'poetghazipur61',
-          display_name: 'Poet Ghazipur 61 (Meta Verified)',
-          auth_type: 'Meta Graph API',
-          status: 'connected',
-          is_active: true,
-          last_verified_at: new Date().toISOString()
-        }, { onConflict: 'username' });
-        fetchDashboardData();
-      } catch (err) {
-        console.warn("Updated local account state:", err);
-      }
-    }
-  };
-
-  const handleMetaLogin = async () => {
-    // 1. Immediately record/verify account in Supabase
-    try {
-      await supabase.from('instagram_accounts').upsert({
-        username: 'poetghazipur61',
-        display_name: 'Poet Ghazipur 61 (Meta Professional)',
-        auth_type: 'Meta Graph API',
-        status: 'connected',
-        is_active: true,
-        last_verified_at: new Date().toISOString()
-      }, { onConflict: 'username' });
-      setAuthNotification('✅ Account @poetghazipur61 connected & verified with Meta Graph API!');
-      fetchDashboardData();
-    } catch (e) {
-      console.warn("Updated local state:", e);
-    }
-
-    // 2. Open Meta OAuth Portal
-    const metaAppId = import.meta.env.VITE_META_APP_ID || '1063180003141134';
-    const redirectUri = window.location.origin + '/auth/instagram/callback';
-    const scope = 'instagram_basic,instagram_content_publish,pages_show_list,pages_read_engagement';
-    const authUrl = `https://www.facebook.com/v20.0/dialog/oauth?client_id=${metaAppId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scope)}&response_type=code`;
-    window.open(authUrl, '_blank', 'width=600,height=700');
-  };
 
 
 
@@ -366,18 +235,14 @@ export default function App() {
             <div>
               <h2 style={{ fontSize: '1.2rem', fontWeight: 600 }}>Instagram Accounts</h2>
               <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                Manage connected accounts via Direct Login, Session Cookie, or Meta Graph API.
+                Manage connected accounts via direct login or session credentials.
               </p>
             </div>
-            <div style={{ display: 'flex', gap: '12px' }}>
-              <button className="btn" style={{ background: 'rgba(56, 189, 248, 0.15)', borderColor: 'rgba(56, 189, 248, 0.4)', color: '#38bdf8', fontWeight: 600, padding: '10px 18px', borderRadius: '10px' }} onClick={() => setShowAddModal(true)}>
+            <div>
+              <button className="ig-gradient-btn" style={{ padding: '10px 20px', borderRadius: '10px', display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600 }} onClick={() => setShowAddModal(true)}>
                 + Add Instagram Account
               </button>
-              <button className="ig-gradient-btn" style={{ padding: '10px 18px', borderRadius: '10px' }} onClick={handleMetaLogin}>
-                + Authorize Meta OAuth
-              </button>
             </div>
-
           </div>
 
           <div style={{ display: 'grid', gap: '16px' }}>
