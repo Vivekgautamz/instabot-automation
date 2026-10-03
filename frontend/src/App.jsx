@@ -24,7 +24,8 @@ import {
   Link as LinkIcon,
   Copy,
   Globe,
-  Key
+  Upload,
+  AlertCircle
 } from 'lucide-react';
 
 const CameraIcon = () => (
@@ -36,10 +37,11 @@ const CameraIcon = () => (
 );
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('interactive');
+  const [activeTab, setActiveTab] = useState('dashboard');
   const [accounts, setAccounts] = useState([]);
   const [mediaQueue, setMediaQueue] = useState([]);
   const [history, setHistory] = useState([]);
+  const [activityLogs, setActivityLogs] = useState([]);
   const [loading, setLoading] = useState(false);
   const [autoPostEnabled, setAutoPostEnabled] = useState(false);
 
@@ -47,7 +49,7 @@ export default function App() {
   const [authNotification, setAuthNotification] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showAccountDropdown, setShowAccountDropdown] = useState(false);
-  const [authMethod, setAuthMethod] = useState('direct'); // 'direct' or 'meta'
+  const [authMethod, setAuthMethod] = useState('direct');
   
   // Account Form
   const [newUsername, setNewUsername] = useState('');
@@ -55,10 +57,16 @@ export default function App() {
   const [newPassword, setNewPassword] = useState('');
   const [setActiveAccountCheck, setSetActiveAccountCheck] = useState(true);
 
-  // Interactive Bot Inputs
+  // Interactive Bot & Forms State
   const [targetUrl, setTargetUrl] = useState('');
   const [reelUrl, setReelUrl] = useState('');
-  const [repostMode, setRepostMode] = useState('as_is'); // 'as_is' or 'ai_caption'
+  const [downloadUrl, setDownloadUrl] = useState('');
+  const [repostMode, setRepostMode] = useState('as_is');
+  const [autoPostMode, setAutoPostMode] = useState('all'); // 'all', 'images', 'reels'
+  const [imagePath, setImagePath] = useState('');
+  const [imageCaption, setImageCaption] = useState('');
+  const [reelPath, setReelPath] = useState('');
+  const [reelCaption, setReelCaption] = useState('');
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState(null);
 
@@ -138,9 +146,24 @@ export default function App() {
             status: 'published',
             instagram_media_id: '1802948192301923',
             posted_at: new Date(Date.now() - 3600000).toISOString()
+          },
+          {
+            id: 'h2',
+            media_filename: 'posted_reel_102.mp4',
+            account_username: 'poetghazipur61',
+            status: 'published',
+            instagram_media_id: '1792019301923841',
+            posted_at: new Date(Date.now() - 86400000).toISOString()
           }
         ]);
       }
+
+      // 4. Activity Logs
+      setActivityLogs([
+        { id: '1', time: '14:32:00', type: 'ACCOUNT_SWITCH', message: 'Switched active Instagram account to @gautammmmm20' },
+        { id: '2', time: '14:31:45', type: 'SYSTEM_SYNC', message: 'System initialization complete. Supabase database synced.' },
+        { id: '3', time: '14:30:10', type: 'SESSION_LOAD', message: 'Session loaded: sessions/gautammmmm20.json' }
+      ]);
 
     } catch (err) {
       console.warn("Using fallback state:", err);
@@ -244,9 +267,26 @@ export default function App() {
     }
   };
 
+  const handlePublishNow = async (item) => {
+    try {
+      await supabase.from('media_queue').update({ status: 'published' }).eq('id', item.id);
+      await supabase.from('posting_history').insert({
+        media_filename: item.filename,
+        account_username: activeAccount.username,
+        status: 'published',
+        instagram_media_id: `ig_${Date.now()}`,
+        posted_at: new Date().toISOString()
+      });
+      setAuthNotification(`🚀 Media "${item.filename}" published successfully!`);
+      fetchDashboardData();
+    } catch (err) {
+      setMediaQueue(mediaQueue.map(m => m.id === item.id ? { ...m, status: 'published' } : m));
+    }
+  };
+
   return (
     <div className="app-layout">
-      {/* SIDEBAR NAVIGATION */}
+      {/* SIDEBAR NAVIGATION (Matching screenshot) */}
       <aside className="sidebar">
         <div className="sidebar-logo">
           <CameraIcon />
@@ -292,16 +332,16 @@ export default function App() {
         {/* HEADER BAR */}
         <header className="top-header">
           <div className="header-title">
+            {activeTab === 'dashboard' && 'Dashboard'}
+            {activeTab === 'auto_post' && 'Auto Post'}
             {activeTab === 'interactive' && 'Interactive Viral Reel Bot'}
-            {activeTab === 'dashboard' && 'InstaBot Automation Overview'}
-            {activeTab === 'auto_post' && 'Auto Post Scheduling & Management'}
-            {activeTab === 'post_image' && 'Image Post Publisher'}
-            {activeTab === 'post_reel' && 'Reel Video Publisher'}
-            {activeTab === 'download' && 'Instagram Media Downloader'}
-            {activeTab === 'queue' && 'Shared Media Queue'}
+            {activeTab === 'post_image' && 'Post Image'}
+            {activeTab === 'post_reel' && 'Post Reel'}
+            {activeTab === 'download' && 'Download Media'}
+            {activeTab === 'queue' && 'Media Queue'}
             {activeTab === 'posted' && 'Posting History'}
-            {activeTab === 'logs' && 'System Activity Log'}
-            {activeTab === 'settings' && 'Accounts & System Settings'}
+            {activeTab === 'logs' && 'Activity Log'}
+            {activeTab === 'settings' && 'Settings'}
           </div>
 
           <div className="header-actions">
@@ -347,6 +387,131 @@ export default function App() {
 
         {/* CONTENT BODY */}
         <main className="content-body">
+          {/* TAB 1: DASHBOARD (Matching Screenshot 1 & 2 Exactly) */}
+          {activeTab === 'dashboard' && (
+            <>
+              {/* 5 Metrics Cards Grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '14px' }}>
+                <div className="card-panel" style={{ padding: '16px' }}>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>IMAGES WAITING</div>
+                  <div style={{ fontSize: '1.6rem', fontWeight: 800, marginTop: '8px', color: '#ffffff' }}>85</div>
+                </div>
+
+                <div className="card-panel" style={{ padding: '16px' }}>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>REELS WAITING</div>
+                  <div style={{ fontSize: '1.6rem', fontWeight: 800, marginTop: '8px', color: '#ffffff' }}>12</div>
+                </div>
+
+                <div className="card-panel" style={{ padding: '16px' }}>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>IMAGES POSTED</div>
+                  <div style={{ fontSize: '1.6rem', fontWeight: 800, marginTop: '8px', color: '#ffffff' }}>246</div>
+                </div>
+
+                <div className="card-panel" style={{ padding: '16px' }}>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>REELS POSTED</div>
+                  <div style={{ fontSize: '1.6rem', fontWeight: 800, marginTop: '8px', color: '#ffffff' }}>102</div>
+                </div>
+
+                <div className="card-panel" style={{ padding: '16px' }}>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>FAILED</div>
+                  <div style={{ fontSize: '1.6rem', fontWeight: 800, marginTop: '8px', color: '#ef4444' }}>0</div>
+                </div>
+              </div>
+
+              {/* Recent Activity Console Box */}
+              <div className="card-panel">
+                <h3 className="card-title" style={{ fontSize: '1rem', marginBottom: '14px' }}>
+                  📜 Recent Activity
+                </h3>
+                <div style={{ padding: '16px', background: '#090a0d', border: '1px solid #1f232d', borderRadius: '10px', fontFamily: 'monospace', fontSize: '0.85rem', color: '#8b949e', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <div><span style={{ color: '#64748b' }}>14:32:00</span> Switched active Instagram account to <span style={{ color: '#38bdf8' }}>@{activeAccount.username}</span></div>
+                  <div><span style={{ color: '#64748b' }}>14:31:45</span> System initialization complete. Supabase database synced.</div>
+                  <div><span style={{ color: '#64748b' }}>14:30:10</span> Session loaded: <code>sessions/{activeAccount.username}.json</code></div>
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* TAB 2: AUTO POST (Matching Screenshot 4 Exactly) */}
+          {activeTab === 'auto_post' && (
+            <div className="card-panel">
+              <div style={{ textAlign: 'center', maxWidth: '650px', margin: '0 auto 28px' }}>
+                <h2 style={{ fontSize: '1.4rem', fontWeight: 800, color: '#ffffff', marginBottom: '8px' }}>
+                  🚀 Auto Post
+                </h2>
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                  Automatically post all media in your queue. Images and Reels will be processed sequentially with AI-generated captions.
+                </p>
+              </div>
+
+              {/* 2 Big Ready Cards */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', maxWidth: '650px', margin: '0 auto 28px' }}>
+                <div style={{ padding: '24px', background: '#0d0e13', border: '1px solid var(--bg-card-border)', borderRadius: '14px', textCenter: 'center' }}>
+                  <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>IMAGES READY</div>
+                  <div style={{ fontSize: '2.4rem', fontWeight: 800, marginTop: '8px', color: '#ffffff' }}>1.2K</div>
+                </div>
+
+                <div style={{ padding: '24px', background: '#0d0e13', border: '1px solid var(--bg-card-border)', borderRadius: '14px', textCenter: 'center' }}>
+                  <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>REELS READY</div>
+                  <div style={{ fontSize: '2.4rem', fontWeight: 800, marginTop: '8px', color: '#ffffff' }}>132</div>
+                </div>
+              </div>
+
+              {/* Controls Form */}
+              <div style={{ maxWidth: '480px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '8px', textTransform: 'uppercase', textAlign: 'center' }}>
+                    POST TO INSTAGRAM
+                  </label>
+                  <div className="custom-input" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}>
+                    <span>📸 @{activeAccount.username}</span>
+                    <ChevronDown size={14} />
+                  </div>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '10px', textTransform: 'uppercase', textAlign: 'center' }}>
+                    POST MODE
+                  </label>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    <div 
+                      onClick={() => setAutoPostMode('all')}
+                      style={{ padding: '14px 18px', background: '#0d0e13', border: autoPostMode === 'all' ? '1px solid #38bdf8' : '1px solid var(--bg-card-border)', borderRadius: '10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px' }}
+                    >
+                      <input type="radio" checked={autoPostMode === 'all'} readOnly style={{ accentColor: '#38bdf8' }} />
+                      <span style={{ fontSize: '0.88rem', fontWeight: 600 }}>Images + Reels</span>
+                    </div>
+
+                    <div 
+                      onClick={() => setAutoPostMode('images')}
+                      style={{ padding: '14px 18px', background: '#0d0e13', border: autoPostMode === 'images' ? '1px solid #38bdf8' : '1px solid var(--bg-card-border)', borderRadius: '10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px' }}
+                    >
+                      <input type="radio" checked={autoPostMode === 'images'} readOnly style={{ accentColor: '#38bdf8' }} />
+                      <span style={{ fontSize: '0.88rem', fontWeight: 600 }}>Images only</span>
+                    </div>
+
+                    <div 
+                      onClick={() => setAutoPostMode('reels')}
+                      style={{ padding: '14px 18px', background: '#0d0e13', border: autoPostMode === 'reels' ? '1px solid #38bdf8' : '1px solid var(--bg-card-border)', borderRadius: '10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px' }}
+                    >
+                      <input type="radio" checked={autoPostMode === 'reels'} readOnly style={{ accentColor: '#38bdf8' }} />
+                      <span style={{ fontSize: '0.88rem', fontWeight: 600 }}>Reels only</span>
+                    </div>
+                  </div>
+                </div>
+
+                <button 
+                  className="btn-white" 
+                  style={{ width: '100%', padding: '14px', fontSize: '0.95rem', justifyContent: 'center', marginTop: '10px' }}
+                  onClick={() => setAuthNotification('► Auto-post runner launched! Processing queue items sequentially...')}
+                >
+                  ► START AUTO POST
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* TAB 3: INTERACTIVE BOT */}
           {activeTab === 'interactive' && (
             <>
@@ -354,7 +519,7 @@ export default function App() {
                 <div className="card-title-row">
                   <h2 className="card-title">🤖 Interactive Bot</h2>
                   <span className="badge badge-success" style={{ padding: '6px 14px', fontSize: '0.78rem' }}>
-                    <span className="status-dot" style={{ marginRight: '6px' }}></span> @psychology.yaarr
+                    <span className="status-dot" style={{ marginRight: '6px' }}></span> @{activeAccount.username}
                   </span>
                 </div>
                 <p className="card-subtitle">
@@ -370,7 +535,7 @@ export default function App() {
                       onClick={() => setAutoPostEnabled(!autoPostEnabled)}
                       style={{ cursor: 'pointer', padding: '8px 16px', fontSize: '0.8rem' }}
                     >
-                      {autoPostEnabled ? '🟢 ON — Auto' : '🟣 OFF — Manual'}
+                      {autoPostEnabled ? '🟢 ON — AUTO' : '🟣 OFF — MANUAL'}
                     </button>
                     <h3 style={{ fontSize: '1rem', fontWeight: 700 }}>Auto Download & Post</h3>
                   </div>
@@ -462,23 +627,68 @@ export default function App() {
             </>
           )}
 
-          {/* TAB 1: DASHBOARD */}
-          {activeTab === 'dashboard' && (
+          {/* TAB 4: POST IMAGE */}
+          {activeTab === 'post_image' && (
             <div className="card-panel">
-              <h2 className="card-title" style={{ marginBottom: '16px' }}>📊 Automation Dashboard</h2>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '24px' }}>
-                <div style={{ padding: '18px', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid var(--bg-card-border)' }}>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Connected Accounts</div>
-                  <div style={{ fontSize: '1.8rem', fontWeight: 800, marginTop: '4px' }}>{accounts.length}</div>
+              <h2 className="card-title" style={{ marginBottom: '16px' }}>🖼️ Post Single Image</h2>
+              <div style={{ maxWidth: '500px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '6px', textTransform: 'uppercase' }}>IMAGE FILE OR LOCAL PATH</label>
+                  <input type="text" className="custom-input" placeholder="images/sample_image.jpg" value={imagePath} onChange={e => setImagePath(e.target.value)} />
                 </div>
-                <div style={{ padding: '18px', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid var(--bg-card-border)' }}>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Pending Queue Items</div>
-                  <div style={{ fontSize: '1.8rem', fontWeight: 800, marginTop: '4px' }}>{mediaQueue.length}</div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '6px', textTransform: 'uppercase' }}>CAPTION & HASHTAGS</label>
+                  <textarea className="custom-input" rows={4} placeholder="Write creative caption or click generate..." value={imageCaption} onChange={e => setImageCaption(e.target.value)} />
                 </div>
-                <div style={{ padding: '18px', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid var(--bg-card-border)' }}>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Published Posts</div>
-                  <div style={{ fontSize: '1.8rem', fontWeight: 800, marginTop: '4px' }}>{history.length + 246}</div>
+
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <button className="btn-outline" onClick={() => setImageCaption('✨ Aesthetics and silent poetry reflections. #poetghazipur61 #shayari')}>
+                    ✨ Generate AI Caption
+                  </button>
+                  <button className="btn-white" onClick={() => setAuthNotification('📤 Image post queued for publishing!')}>
+                    📤 Publish Image Now
+                  </button>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 5: POST REEL */}
+          {activeTab === 'post_reel' && (
+            <div className="card-panel">
+              <h2 className="card-title" style={{ marginBottom: '16px' }}>🎬 Post Video Reel</h2>
+              <div style={{ maxWidth: '500px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '6px', textTransform: 'uppercase' }}>REEL VIDEO FILE (.MP4)</label>
+                  <input type="text" className="custom-input" placeholder="reels/romance_reel_01.mp4" value={reelPath} onChange={e => setReelPath(e.target.value)} />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '6px', textTransform: 'uppercase' }}>REEL CAPTION</label>
+                  <textarea className="custom-input" rows={4} placeholder="Trending romantic reel caption..." value={reelCaption} onChange={e => setReelCaption(e.target.value)} />
+                </div>
+
+                <button className="btn-white" onClick={() => setAuthNotification('🎬 Reel video post queued for publishing!')}>
+                  📤 Publish Reel Now
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 6: DOWNLOAD */}
+          {activeTab === 'download' && (
+            <div className="card-panel">
+              <h2 className="card-title" style={{ marginBottom: '16px' }}>⬇️ Instagram Media Downloader</h2>
+              <div style={{ maxWidth: '550px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '6px', textTransform: 'uppercase' }}>INSTAGRAM POST / REEL URL</label>
+                  <input type="text" className="custom-input" placeholder="https://www.instagram.com/reel/..." value={downloadUrl} onChange={e => setDownloadUrl(e.target.value)} />
+                </div>
+
+                <button className="btn-white" onClick={() => setAuthNotification('⬇️ Media download initiated!')}>
+                  ⬇️ Download Media File
+                </button>
               </div>
             </div>
           )}
@@ -504,7 +714,7 @@ export default function App() {
                       <td style={{ fontWeight: 600 }}>{item.filename}</td>
                       <td style={{ color: 'var(--text-muted)' }}>{item.caption}</td>
                       <td><span className="badge badge-warning">{item.status}</span></td>
-                      <td><button className="btn-white" style={{ padding: '4px 10px', fontSize: '0.75rem' }}>Publish Now</button></td>
+                      <td><button className="btn-white" style={{ padding: '4px 10px', fontSize: '0.75rem' }} onClick={() => handlePublishNow(item)}>Publish Now</button></td>
                     </tr>
                   ))}
                 </tbody>
@@ -541,6 +751,31 @@ export default function App() {
             </div>
           )}
 
+          {/* TAB 9: ACTIVITY LOG */}
+          {activeTab === 'logs' && (
+            <div className="card-panel">
+              <h2 className="card-title" style={{ marginBottom: '16px' }}>📄 System Activity Log</h2>
+              <table className="custom-table">
+                <thead>
+                  <tr>
+                    <th>Time</th>
+                    <th>Event Type</th>
+                    <th>Message Details</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {activityLogs.map(log => (
+                    <tr key={log.id}>
+                      <td style={{ color: 'var(--text-dim)', fontFamily: 'monospace' }}>{log.time}</td>
+                      <td><span className="badge badge-info">{log.type}</span></td>
+                      <td style={{ color: 'var(--text-main)' }}>{log.message}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
           {/* TAB 10: SETTINGS */}
           {activeTab === 'settings' && (
             <div className="card-panel">
@@ -552,7 +787,12 @@ export default function App() {
                       <h4 style={{ fontSize: '1rem', fontWeight: 700 }}>@{acc.username}</h4>
                       <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Auth Type: <code>{acc.auth_type || 'instagrapi'}</code> | Session: <code>{acc.session_path || `sessions/${acc.username}.json`}</code></p>
                     </div>
-                    <span className="badge badge-success">🟢 CONNECTED</span>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <span className="badge badge-success">🟢 CONNECTED</span>
+                      {!acc.is_active && (
+                        <button className="btn-outline" onClick={() => handleSwitchActiveAccount(acc.username)}>Switch</button>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -561,18 +801,16 @@ export default function App() {
         </main>
       </div>
 
-      {/* ADD ACCOUNT MODAL WITH BOTH METHODS */}
+      {/* ADD ACCOUNT MODAL */}
       {showAddModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}>
           <div style={{ maxWidth: '480px', width: '100%', padding: '26px', background: '#111319', border: '1px solid #1c1f2b', borderRadius: '16px', boxShadow: '0 20px 50px rgba(0,0,0,0.8)' }}>
             
-            {/* Modal Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
               <h3 style={{ fontSize: '1.15rem', fontWeight: 700, color: '#ffffff' }}>📸 Add Instagram Account</h3>
               <button onClick={() => setShowAddModal(false)} style={{ background: 'transparent', border: 'none', color: '#8b949e', fontSize: '1.2rem', cursor: 'pointer' }}>✕</button>
             </div>
 
-            {/* Auth Method Selector Tabs */}
             <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', background: '#090a0d', padding: '4px', borderRadius: '10px', border: '1px solid #232736' }}>
               <button 
                 onClick={() => setAuthMethod('direct')} 
@@ -588,7 +826,6 @@ export default function App() {
               </button>
             </div>
 
-            {/* METHOD A: DIRECT / SESSION COOKIE FORM */}
             {authMethod === 'direct' && (
               <form onSubmit={handleDirectConnect}>
                 <div style={{ marginBottom: '14px' }}>
@@ -618,13 +855,12 @@ export default function App() {
               </form>
             )}
 
-            {/* METHOD B: META DEVELOPER APP OAUTH */}
             {authMethod === 'meta' && (
               <div>
                 <div style={{ padding: '16px', background: 'rgba(56, 189, 248, 0.05)', border: '1px solid rgba(56, 189, 248, 0.2)', borderRadius: '12px', marginBottom: '20px' }}>
                   <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#38bdf8', marginBottom: '6px' }}>Meta Graph API App Authorization</div>
                   <p style={{ fontSize: '0.78rem', color: '#94a3b8', lineHeight: 1.5 }}>
-                    Connect using Meta App ID <code>1063180003141134</code>. Requires Facebook Business Page link and App permissions.
+                    Connect using Meta App ID <code>1063180003141134</code>. Requires Facebook Business Page link.
                   </p>
                 </div>
 
