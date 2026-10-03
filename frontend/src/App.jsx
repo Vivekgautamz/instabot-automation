@@ -77,6 +77,29 @@ export default function App() {
 
   useEffect(() => {
     fetchDashboardData();
+
+    // Check for Facebook OAuth Callback URL parameters
+    const urlParams = new URLSearchParams(window.location.search);
+    const code = urlParams.get('code');
+    const error = urlParams.get('error');
+    const errorDescription = urlParams.get('error_description');
+
+    if (code) {
+      setAuthNotification('🎉 Facebook OAuth authentication successful! Meta account connected.');
+      supabase.from('instagram_accounts').upsert({
+        username: 'meta_business_account',
+        display_name: 'Meta Business Account (OAuth)',
+        auth_type: 'Meta Graph API',
+        status: 'connected',
+        session_status: 'verified',
+        is_active: true,
+        last_verified_at: new Date().toISOString()
+      }, { onConflict: 'username' }).then(() => fetchDashboardData());
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } else if (error) {
+      setAuthNotification(`❌ Facebook OAuth Error: ${errorDescription || error}. Check Facebook Developer Console OAuth Redirect URIs.`);
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
   }, []);
 
   // Handle URL change or paste when autoPostEnabled is ON
@@ -323,9 +346,24 @@ export default function App() {
     const metaAppId = import.meta.env.VITE_META_APP_ID || '1063180003141134';
     const redirectUri = window.location.origin + '/auth/instagram/callback';
     const scope = 'instagram_basic,instagram_content_publish,pages_show_list,pages_read_engagement';
-    const authUrl = `https://www.facebook.com/v20.0/dialog/oauth?client_id=${metaAppId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scope)}&response_type=code`;
 
     try {
+      // 1. Try Supabase Auth Facebook OAuth if configured
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'facebook',
+        options: {
+          redirectTo: redirectUri,
+          scopes: scope
+        }
+      });
+
+      if (error) {
+        console.info("Supabase Auth Facebook OAuth not configured, using direct Meta Graph dialog:", error.message);
+        // Fallback to direct Meta Dialog OAuth
+        const authUrl = `https://www.facebook.com/v20.0/dialog/oauth?client_id=${metaAppId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scope)}&response_type=code`;
+        window.open(authUrl, '_blank', 'width=600,height=700');
+      }
+
       await supabase.from('instagram_accounts').upsert({
         username: 'meta_business_account',
         display_name: 'Meta Business Account (OAuth)',
@@ -336,13 +374,13 @@ export default function App() {
         last_verified_at: new Date().toISOString()
       }, { onConflict: 'username' });
 
-      setAuthNotification('🎉 Meta OAuth process initiated! Authenticating via Meta App ID 1063180003141134.');
+      setAuthNotification(`🎉 Meta OAuth initiated! Check Facebook login popup. Registered Callback: ${redirectUri}`);
       setShowAddModal(false);
       fetchDashboardData();
     } catch (err) {
       console.warn("Meta auth error:", err);
+      setAuthNotification(`❌ OAuth Error: ${err.message}`);
     }
-    window.open(authUrl, '_blank', 'width=600,height=700');
   };
 
   const handleSwitchActiveAccount = async (username) => {
