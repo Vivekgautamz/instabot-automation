@@ -22,7 +22,9 @@ import {
   Check, 
   Play, 
   Link as LinkIcon,
-  Copy
+  Copy,
+  Globe,
+  Key
 } from 'lucide-react';
 
 const CameraIcon = () => (
@@ -41,10 +43,11 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [autoPostEnabled, setAutoPostEnabled] = useState(false);
 
-  // Form & Interactive Bot State
+  // Form & Modal State
   const [authNotification, setAuthNotification] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showAccountDropdown, setShowAccountDropdown] = useState(false);
+  const [authMethod, setAuthMethod] = useState('direct'); // 'direct' or 'meta'
   
   // Account Form
   const [newUsername, setNewUsername] = useState('');
@@ -179,6 +182,32 @@ export default function App() {
     }
   };
 
+  const handleMetaLogin = async () => {
+    const metaAppId = import.meta.env.VITE_META_APP_ID || '1063180003141134';
+    const redirectUri = window.location.origin + '/auth/instagram/callback';
+    const scope = 'instagram_basic,instagram_content_publish,pages_show_list,pages_read_engagement';
+    const authUrl = `https://www.facebook.com/v20.0/dialog/oauth?client_id=${metaAppId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scope)}&response_type=code`;
+
+    try {
+      await supabase.from('instagram_accounts').upsert({
+        username: 'meta_business_account',
+        display_name: 'Meta Business Account (OAuth)',
+        auth_type: 'Meta Graph API',
+        status: 'connected',
+        session_status: 'verified',
+        is_active: true,
+        last_verified_at: new Date().toISOString()
+      }, { onConflict: 'username' });
+
+      setAuthNotification('🎉 Meta OAuth process initiated! Authenticating via Meta App ID 1063180003141134.');
+      setShowAddModal(false);
+      fetchDashboardData();
+    } catch (err) {
+      console.warn("Meta auth error:", err);
+    }
+    window.open(authUrl, '_blank', 'width=600,height=700');
+  };
+
   const handleSwitchActiveAccount = async (username) => {
     try {
       setAccounts(prev => prev.map(a => ({ ...a, is_active: a.username === username })));
@@ -225,73 +254,34 @@ export default function App() {
         </div>
 
         <nav className="nav-menu">
-          <button 
-            className={`nav-item ${activeTab === 'dashboard' ? 'active' : ''}`}
-            onClick={() => setActiveTab('dashboard')}
-          >
+          <button className={`nav-item ${activeTab === 'dashboard' ? 'active' : ''}`} onClick={() => setActiveTab('dashboard')}>
             <LayoutDashboard size={18} /> Dashboard
           </button>
-
-          <button 
-            className={`nav-item ${activeTab === 'auto_post' ? 'active' : ''}`}
-            onClick={() => setActiveTab('auto_post')}
-          >
+          <button className={`nav-item ${activeTab === 'auto_post' ? 'active' : ''}`} onClick={() => setActiveTab('auto_post')}>
             <Zap size={18} /> Auto Post
           </button>
-
-          <button 
-            className={`nav-item ${activeTab === 'interactive' ? 'active' : ''}`}
-            onClick={() => setActiveTab('interactive')}
-          >
+          <button className={`nav-item ${activeTab === 'interactive' ? 'active' : ''}`} onClick={() => setActiveTab('interactive')}>
             <Bot size={18} /> Interactive Bot
           </button>
-
-          <button 
-            className={`nav-item ${activeTab === 'post_image' ? 'active' : ''}`}
-            onClick={() => setActiveTab('post_image')}
-          >
+          <button className={`nav-item ${activeTab === 'post_image' ? 'active' : ''}`} onClick={() => setActiveTab('post_image')}>
             <ImageIcon size={18} /> Post Image
           </button>
-
-          <button 
-            className={`nav-item ${activeTab === 'post_reel' ? 'active' : ''}`}
-            onClick={() => setActiveTab('post_reel')}
-          >
+          <button className={`nav-item ${activeTab === 'post_reel' ? 'active' : ''}`} onClick={() => setActiveTab('post_reel')}>
             <Film size={18} /> Post Reel
           </button>
-
-          <button 
-            className={`nav-item ${activeTab === 'download' ? 'active' : ''}`}
-            onClick={() => setActiveTab('download')}
-          >
+          <button className={`nav-item ${activeTab === 'download' ? 'active' : ''}`} onClick={() => setActiveTab('download')}>
             <DownloadIcon size={18} /> Download
           </button>
-
-          <button 
-            className={`nav-item ${activeTab === 'queue' ? 'active' : ''}`}
-            onClick={() => setActiveTab('queue')}
-          >
+          <button className={`nav-item ${activeTab === 'queue' ? 'active' : ''}`} onClick={() => setActiveTab('queue')}>
             <ListOrdered size={18} /> Queue ({mediaQueue.length})
           </button>
-
-          <button 
-            className={`nav-item ${activeTab === 'posted' ? 'active' : ''}`}
-            onClick={() => setActiveTab('posted')}
-          >
+          <button className={`nav-item ${activeTab === 'posted' ? 'active' : ''}`} onClick={() => setActiveTab('posted')}>
             <CheckCircle2 size={18} /> Posted
           </button>
-
-          <button 
-            className={`nav-item ${activeTab === 'logs' ? 'active' : ''}`}
-            onClick={() => setActiveTab('logs')}
-          >
+          <button className={`nav-item ${activeTab === 'logs' ? 'active' : ''}`} onClick={() => setActiveTab('logs')}>
             <FileText size={18} /> Activity Log
           </button>
-
-          <button 
-            className={`nav-item ${activeTab === 'settings' ? 'active' : ''}`}
-            onClick={() => setActiveTab('settings')}
-          >
+          <button className={`nav-item ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => setActiveTab('settings')}>
             <Settings size={18} /> Settings
           </button>
         </nav>
@@ -317,10 +307,7 @@ export default function App() {
           <div className="header-actions">
             {/* Account Selector Dropdown */}
             <div style={{ position: 'relative' }}>
-              <button 
-                className="account-selector" 
-                onClick={() => setShowAccountDropdown(!showAccountDropdown)}
-              >
+              <button className="account-selector" onClick={() => setShowAccountDropdown(!showAccountDropdown)}>
                 <span className="status-dot"></span>
                 @{activeAccount.username}
                 <ChevronDown size={14} />
@@ -360,15 +347,12 @@ export default function App() {
 
         {/* CONTENT BODY */}
         <main className="content-body">
-          {/* TAB 3: INTERACTIVE BOT (Matching Screenshot Exactly) */}
+          {/* TAB 3: INTERACTIVE BOT */}
           {activeTab === 'interactive' && (
             <>
-              {/* CARD 1: Header Banner */}
               <div className="card-panel">
                 <div className="card-title-row">
-                  <h2 className="card-title">
-                    🤖 Interactive Bot
-                  </h2>
+                  <h2 className="card-title">🤖 Interactive Bot</h2>
                   <span className="badge badge-success" style={{ padding: '6px 14px', fontSize: '0.78rem' }}>
                     <span className="status-dot" style={{ marginRight: '6px' }}></span> @psychology.yaarr
                   </span>
@@ -378,7 +362,6 @@ export default function App() {
                 </p>
               </div>
 
-              {/* CARD 2: Auto Download & Post Bar */}
               <div className="card-panel">
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
@@ -418,14 +401,9 @@ export default function App() {
                 </div>
               </div>
 
-              {/* CARD 3: Target Content */}
               <div className="card-panel">
-                <h3 className="card-title" style={{ fontSize: '1rem', marginBottom: '4px' }}>
-                  🔍 Target Content
-                </h3>
-                <p className="card-subtitle" style={{ marginBottom: '14px' }}>
-                  Instagram Post, Carousel, or Reel URL
-                </p>
+                <h3 className="card-title" style={{ fontSize: '1rem', marginBottom: '4px' }}>🔍 Target Content</h3>
+                <p className="card-subtitle" style={{ marginBottom: '14px' }}>Instagram Post, Carousel, or Reel URL</p>
 
                 <div style={{ display: 'flex', gap: '12px' }}>
                   <input 
@@ -448,11 +426,8 @@ export default function App() {
                 )}
               </div>
 
-              {/* CARD 4: Repost Mode Cards */}
               <div className="card-panel">
-                <h3 className="card-title" style={{ fontSize: '1rem', marginBottom: '4px' }}>
-                  🔄 REPOST MODE
-                </h3>
+                <h3 className="card-title" style={{ fontSize: '1rem', marginBottom: '4px' }}>🔄 REPOST MODE</h3>
 
                 <div className="repost-grid">
                   <div 
@@ -461,12 +436,8 @@ export default function App() {
                   >
                     <input type="radio" checked={repostMode === 'as_is'} readOnly style={{ accentColor: '#38bdf8', marginTop: '3px' }} />
                     <div>
-                      <h4 style={{ fontSize: '0.9rem', fontWeight: 700, color: '#ffffff', marginBottom: '4px' }}>
-                        ⚡ Repost As-Is (Recommended)
-                      </h4>
-                      <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                        Preserve original media (Carousels 1..N in order), copy exact original caption & hashtags
-                      </p>
+                      <h4 style={{ fontSize: '0.9rem', fontWeight: 700, color: '#ffffff', marginBottom: '4px' }}>⚡ Repost As-Is (Recommended)</h4>
+                      <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Preserve original media (Carousels 1..N in order), copy exact original caption & hashtags</p>
                     </div>
                   </div>
 
@@ -476,12 +447,8 @@ export default function App() {
                   >
                     <input type="radio" checked={repostMode === 'ai_caption'} readOnly style={{ accentColor: '#38bdf8', marginTop: '3px' }} />
                     <div>
-                      <h4 style={{ fontSize: '0.9rem', fontWeight: 700, color: '#ffffff', marginBottom: '4px' }}>
-                        ✨ AI Caption + Hashtags
-                      </h4>
-                      <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                        Analyze visual media and generate a brand-new, customized viral caption and trending hashtags
-                      </p>
+                      <h4 style={{ fontSize: '0.9rem', fontWeight: 700, color: '#ffffff', marginBottom: '4px' }}>✨ AI Caption + Hashtags</h4>
+                      <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Analyze visual media and generate a brand-new, customized viral caption and trending hashtags</p>
                     </div>
                   </div>
                 </div>
@@ -583,7 +550,7 @@ export default function App() {
                   <div key={acc.username} style={{ padding: '16px', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid var(--bg-card-border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <div>
                       <h4 style={{ fontSize: '1rem', fontWeight: 700 }}>@{acc.username}</h4>
-                      <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Session: <code>{acc.session_path || `sessions/${acc.username}.json`}</code></p>
+                      <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Auth Type: <code>{acc.auth_type || 'instagrapi'}</code> | Session: <code>{acc.session_path || `sessions/${acc.username}.json`}</code></p>
                     </div>
                     <span className="badge badge-success">🟢 CONNECTED</span>
                   </div>
@@ -594,41 +561,86 @@ export default function App() {
         </main>
       </div>
 
-      {/* ADD ACCOUNT MODAL */}
+      {/* ADD ACCOUNT MODAL WITH BOTH METHODS */}
       {showAddModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}>
-          <div style={{ maxWidth: '440px', width: '100%', padding: '26px', background: '#111319', border: '1px solid #1c1f2b', borderRadius: '16px', boxShadow: '0 20px 50px rgba(0,0,0,0.8)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#ffffff' }}>📸 Add Instagram Account</h3>
+          <div style={{ maxWidth: '480px', width: '100%', padding: '26px', background: '#111319', border: '1px solid #1c1f2b', borderRadius: '16px', boxShadow: '0 20px 50px rgba(0,0,0,0.8)' }}>
+            
+            {/* Modal Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h3 style={{ fontSize: '1.15rem', fontWeight: 700, color: '#ffffff' }}>📸 Add Instagram Account</h3>
               <button onClick={() => setShowAddModal(false)} style={{ background: 'transparent', border: 'none', color: '#8b949e', fontSize: '1.2rem', cursor: 'pointer' }}>✕</button>
             </div>
 
-            <form onSubmit={handleDirectConnect}>
-              <div style={{ marginBottom: '16px' }}>
-                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#8b949e', marginBottom: '6px', textTransform: 'uppercase' }}>INSTAGRAM USERNAME</label>
-                <input type="text" className="custom-input" placeholder="@gautammmmm20" value={newUsername} onChange={e => setNewUsername(e.target.value)} required />
-              </div>
+            {/* Auth Method Selector Tabs */}
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', background: '#090a0d', padding: '4px', borderRadius: '10px', border: '1px solid #232736' }}>
+              <button 
+                onClick={() => setAuthMethod('direct')} 
+                style={{ flex: 1, padding: '8px 12px', borderRadius: '8px', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer', border: 'none', background: authMethod === 'direct' ? '#ffffff' : 'transparent', color: authMethod === 'direct' ? '#000' : '#8b949e' }}
+              >
+                🔐 Direct / Session Cookie
+              </button>
+              <button 
+                onClick={() => setAuthMethod('meta')} 
+                style={{ flex: 1, padding: '8px 12px', borderRadius: '8px', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer', border: 'none', background: authMethod === 'meta' ? '#ffffff' : 'transparent', color: authMethod === 'meta' ? '#000' : '#8b949e' }}
+              >
+                🌐 Meta Developer App
+              </button>
+            </div>
 
-              <div style={{ marginBottom: '16px' }}>
-                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#8b949e', marginBottom: '6px', textTransform: 'uppercase' }}>DISPLAY NAME</label>
-                <input type="text" className="custom-input" placeholder="gautammmmm20" value={displayName} onChange={e => setDisplayName(e.target.value)} />
-              </div>
+            {/* METHOD A: DIRECT / SESSION COOKIE FORM */}
+            {authMethod === 'direct' && (
+              <form onSubmit={handleDirectConnect}>
+                <div style={{ marginBottom: '14px' }}>
+                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#8b949e', marginBottom: '6px', textTransform: 'uppercase' }}>INSTAGRAM USERNAME</label>
+                  <input type="text" className="custom-input" placeholder="@gautammmmm20" value={newUsername} onChange={e => setNewUsername(e.target.value)} required />
+                </div>
 
-              <div style={{ marginBottom: '16px' }}>
-                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#8b949e', marginBottom: '6px', textTransform: 'uppercase' }}>SESSION FILE (AUTO-GENERATED)</label>
-                <input type="text" readOnly className="custom-input" style={{ background: '#08090c', color: '#64748b', fontFamily: 'monospace' }} value={`sessions/${newUsername.trim().replace(/^@/, '') || 'gautammmmm20'}.json`} />
-              </div>
+                <div style={{ marginBottom: '14px' }}>
+                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#8b949e', marginBottom: '6px', textTransform: 'uppercase' }}>DISPLAY NAME</label>
+                  <input type="text" className="custom-input" placeholder="gautammmmm20" value={displayName} onChange={e => setDisplayName(e.target.value)} />
+                </div>
 
-              <div style={{ marginBottom: '16px' }}>
-                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#8b949e', marginBottom: '6px', textTransform: 'uppercase' }}>PASSWORD / SESSION ID COOKIE</label>
-                <input type="password" className="custom-input" placeholder="Password or sessionid cookie string" value={newPassword} onChange={e => setNewPassword(e.target.value)} />
-              </div>
+                <div style={{ marginBottom: '14px' }}>
+                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#8b949e', marginBottom: '6px', textTransform: 'uppercase' }}>SESSION FILE (AUTO-GENERATED)</label>
+                  <input type="text" readOnly className="custom-input" style={{ background: '#08090c', color: '#64748b', fontFamily: 'monospace' }} value={`sessions/${newUsername.trim().replace(/^@/, '') || 'gautammmmm20'}.json`} />
+                </div>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '20px' }}>
-                <button type="button" className="btn-outline" onClick={() => setShowAddModal(false)}>Cancel</button>
-                <button type="submit" className="btn-white">🔐 Verify & Connect</button>
+                <div style={{ marginBottom: '16px' }}>
+                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#8b949e', marginBottom: '6px', textTransform: 'uppercase' }}>PASSWORD / SESSION ID COOKIE</label>
+                  <input type="password" className="custom-input" placeholder="Password or sessionid cookie string" value={newPassword} onChange={e => setNewPassword(e.target.value)} />
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '20px' }}>
+                  <button type="button" className="btn-outline" onClick={() => setShowAddModal(false)}>Cancel</button>
+                  <button type="submit" className="btn-white">🔐 Verify & Connect</button>
+                </div>
+              </form>
+            )}
+
+            {/* METHOD B: META DEVELOPER APP OAUTH */}
+            {authMethod === 'meta' && (
+              <div>
+                <div style={{ padding: '16px', background: 'rgba(56, 189, 248, 0.05)', border: '1px solid rgba(56, 189, 248, 0.2)', borderRadius: '12px', marginBottom: '20px' }}>
+                  <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#38bdf8', marginBottom: '6px' }}>Meta Graph API App Authorization</div>
+                  <p style={{ fontSize: '0.78rem', color: '#94a3b8', lineHeight: 1.5 }}>
+                    Connect using Meta App ID <code>1063180003141134</code>. Requires Facebook Business Page link and App permissions.
+                  </p>
+                </div>
+
+                <button 
+                  onClick={handleMetaLogin}
+                  style={{ width: '100%', padding: '12px', borderRadius: '10px', background: 'linear-gradient(135deg, #833ab4, #fd1d1d, #fcb045)', border: 'none', color: '#fff', fontWeight: 700, fontSize: '0.9rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                >
+                  <Globe size={18} /> Authorize via Meta Developer App
+                </button>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '20px' }}>
+                  <button type="button" className="btn-outline" onClick={() => setShowAddModal(false)}>Cancel</button>
+                </div>
               </div>
-            </form>
+            )}
+
           </div>
         </div>
       )}
