@@ -528,40 +528,51 @@ export default function App() {
               </div>
 
               <div className="card-panel">
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '18px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
                     <button 
-                      className={`badge ${autoPostEnabled ? 'badge-success' : 'badge-warning'}`}
                       onClick={() => setAutoPostEnabled(!autoPostEnabled)}
-                      style={{ cursor: 'pointer', padding: '8px 16px', fontSize: '0.8rem' }}
+                      style={{ 
+                        cursor: 'pointer', 
+                        padding: '8px 18px', 
+                        fontSize: '0.82rem', 
+                        fontWeight: 700, 
+                        borderRadius: '20px', 
+                        border: 'none', 
+                        background: '#ffffff', 
+                        color: '#000000', 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: '6px', 
+                        boxShadow: '0 4px 14px rgba(255, 255, 255, 0.2)' 
+                      }}
                     >
-                      {autoPostEnabled ? '🟢 ON — AUTO' : '🟣 OFF — MANUAL'}
+                      <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: autoPostEnabled ? '#10b981' : '#f59e0b' }}></span>
+                      {autoPostEnabled ? 'ON — Automatic' : 'OFF — Manual'}
                     </button>
-                    <h3 style={{ fontSize: '1rem', fontWeight: 700 }}>Auto Download & Post</h3>
+                    <h3 style={{ fontSize: '1.05rem', fontWeight: 700 }}>Auto Download & Post</h3>
                   </div>
                   <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>@{activeAccount.username}</span>
                 </div>
 
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                     🔗 REEL URL
                   </label>
-                  <div style={{ display: 'flex', gap: '10px' }}>
-                    <div style={{ flex: 1, position: 'relative' }}>
-                      <input 
-                        type="text" 
-                        className="custom-input" 
-                        placeholder="📑 Paste Instagram Reel URL" 
-                        value={reelUrl}
-                        onChange={e => setReelUrl(e.target.value)}
-                      />
-                    </div>
-                    <button className="btn-outline" onClick={() => handlePasteClipboard(setReelUrl)}>
-                      <Copy size={14} style={{ marginRight: '6px' }} /> Paste
-                    </button>
+                  <div 
+                    style={{ padding: '20px', background: '#090a0d', border: '1px dashed #232736', borderRadius: '12px', textAlign: 'center', cursor: 'pointer' }}
+                    onClick={() => handlePasteClipboard(setReelUrl)}
+                  >
+                    <input 
+                      type="text" 
+                      placeholder="📑 Paste Instagram Reel URL" 
+                      value={reelUrl}
+                      onChange={e => setReelUrl(e.target.value)}
+                      style={{ width: '100%', background: 'transparent', border: 'none', textAlign: 'center', color: '#ffffff', fontSize: '0.95rem', outline: 'none' }}
+                    />
                   </div>
-                  <p style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginTop: '6px' }}>
-                    👇 Click → Paste URL → Start
+                  <p style={{ fontSize: '0.78rem', color: 'var(--text-dim)', textAlign: 'center', marginTop: '10px' }}>
+                    👇 Click box → Paste URL → Auto-Post
                   </p>
                 </div>
               </div>
