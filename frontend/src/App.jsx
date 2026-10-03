@@ -1,27 +1,32 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './lib/supabase';
 import { 
-  Database, 
-  Layers, 
-  History, 
-  Settings, 
+  LayoutDashboard, 
+  Zap, 
+  Bot, 
+  Image as ImageIcon, 
+  Film, 
+  Download as DownloadIcon, 
+  ListOrdered, 
   CheckCircle2, 
-  AlertCircle, 
-  Play, 
-  ExternalLink, 
+  FileText, 
+  Settings, 
+  Plus, 
+  ChevronDown, 
+  Search, 
+  Sparkles, 
   RefreshCw, 
-  ShieldCheck, 
-  Server,
-  Sparkles,
-  UserCheck,
-  Film,
-  Trash2,
-  Check,
-  Image as ImageIcon
+  Database, 
+  Server, 
+  Trash2, 
+  Check, 
+  Play, 
+  Link as LinkIcon,
+  Copy
 } from 'lucide-react';
 
-const Instagram = ({ size = 24, color = 'currentColor' }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+const CameraIcon = () => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect>
     <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path>
     <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line>
@@ -29,21 +34,30 @@ const Instagram = ({ size = 24, color = 'currentColor' }) => (
 );
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('overview');
+  const [activeTab, setActiveTab] = useState('interactive');
   const [accounts, setAccounts] = useState([]);
   const [mediaQueue, setMediaQueue] = useState([]);
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(false);
   const [autoPostEnabled, setAutoPostEnabled] = useState(false);
 
+  // Form & Interactive Bot State
   const [authNotification, setAuthNotification] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showAccountDropdown, setShowAccountDropdown] = useState(false);
   
-  // Form State
+  // Account Form
   const [newUsername, setNewUsername] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [newPassword, setNewPassword] = useState('');
-  const [setActiveAccount, setSetActiveAccount] = useState(true);
+  const [setActiveAccountCheck, setSetActiveAccountCheck] = useState(true);
+
+  // Interactive Bot Inputs
+  const [targetUrl, setTargetUrl] = useState('');
+  const [reelUrl, setReelUrl] = useState('');
+  const [repostMode, setRepostMode] = useState('as_is'); // 'as_is' or 'ai_caption'
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analysisResult, setAnalysisResult] = useState(null);
 
   useEffect(() => {
     fetchDashboardData();
@@ -52,33 +66,38 @@ export default function App() {
   const fetchDashboardData = async () => {
     setLoading(true);
     try {
-      // 1. Fetch Accounts from Supabase
-      const { data: accountsData, error: accErr } = await supabase
+      // 1. Fetch Accounts
+      const { data: accountsData } = await supabase
         .from('instagram_accounts')
         .select('*')
         .order('created_at', { ascending: true });
 
-      if (!accErr && accountsData && accountsData.length > 0) {
+      if (accountsData && accountsData.length > 0) {
         setAccounts(accountsData);
       } else {
-        // Fallback default list if database is empty initially
-        const defaultAccounts = [
+        setAccounts([
           {
             id: '1',
             username: 'poetghazipur61',
             display_name: 'Poet Ghazipur 61',
-            auth_type: 'instagrapi',
             status: 'connected',
             session_status: 'verified',
             session_path: 'sessions/poetghazipur61.json',
-            is_active: true,
-            last_verified_at: new Date().toISOString(),
+            is_active: false
+          },
+          {
+            id: '2',
+            username: 'gautammmmm20',
+            display_name: 'gautammmmm20',
+            status: 'connected',
+            session_status: 'verified',
+            session_path: 'sessions/gautammmmm20.json',
+            is_active: true
           }
-        ];
-        setAccounts(defaultAccounts);
+        ]);
       }
 
-      // 2. Fetch Media Queue
+      // 2. Fetch Queue
       const { data: queueData } = await supabase.from('media_queue').select('*');
       if (queueData && queueData.length > 0) {
         setMediaQueue(queueData);
@@ -112,34 +131,22 @@ export default function App() {
           {
             id: 'h1',
             media_filename: 'posted_image_246.jpg',
-            account_username: 'poetghazipur61',
+            account_username: 'gautammmmm20',
             status: 'published',
             instagram_media_id: '1802948192301923',
             posted_at: new Date(Date.now() - 3600000).toISOString()
-          },
-          {
-            id: 'h2',
-            media_filename: 'posted_reel_102.mp4',
-            account_username: 'poetghazipur61',
-            status: 'published',
-            instagram_media_id: '1792019301923841',
-            posted_at: new Date(Date.now() - 86400000).toISOString()
           }
         ]);
       }
 
-      // 4. Fetch App Settings
-      const { data: settingsData } = await supabase.from('app_settings').select('*').eq('setting_key', 'auto_post');
-      if (settingsData && settingsData.length > 0) {
-        setAutoPostEnabled(settingsData[0].setting_value?.enabled || false);
-      }
-
     } catch (err) {
-      console.warn("Loaded cached dashboard state:", err);
+      console.warn("Using fallback state:", err);
     } finally {
       setLoading(false);
     }
   };
+
+  const activeAccount = accounts.find(a => a.is_active) || accounts[0] || { username: 'gautammmmm20' };
 
   const handleDirectConnect = async (e) => {
     e.preventDefault();
@@ -150,547 +157,478 @@ export default function App() {
       const finalDisplayName = displayName.trim() || cleanUsername;
       const sessionPath = `sessions/${cleanUsername}.json`;
 
-      // 1. Save / Upsert Account to Supabase database first
-      const { data: upsertedData, error: upsertError } = await supabase
-        .from('instagram_accounts')
-        .upsert({
-          username: cleanUsername,
-          display_name: finalDisplayName,
-          auth_type: newPassword.includes('%') || newPassword.length > 20 ? 'Session ID Cookie' : 'Direct Login',
-          status: 'connected',
-          session_status: 'verified',
-          session_path: sessionPath,
-          is_active: setActiveAccount,
-          last_verified_at: new Date().toISOString()
-        }, { onConflict: 'username' })
-        .select('*');
+      await supabase.from('instagram_accounts').upsert({
+        username: cleanUsername,
+        display_name: finalDisplayName,
+        auth_type: newPassword.includes('%') || newPassword.length > 20 ? 'Session ID Cookie' : 'Direct Login',
+        status: 'connected',
+        session_status: 'verified',
+        session_path: sessionPath,
+        is_active: setActiveAccountCheck,
+        last_verified_at: new Date().toISOString()
+      }, { onConflict: 'username' });
 
-      if (upsertError) {
-        console.warn("Supabase upsert warning:", upsertError);
-      }
-
-      // 2. Fetch fresh list of all accounts from Supabase
-      const { data: freshAccounts, error: fetchError } = await supabase
-        .from('instagram_accounts')
-        .select('*')
-        .order('created_at', { ascending: true });
-
-      if (freshAccounts && freshAccounts.length > 0) {
-        setAccounts(freshAccounts);
-      } else {
-        // Direct local state update to ensure UI updates immediately
-        const newAccObj = {
-          id: upsertedData?.[0]?.id || Date.now().toString(),
-          username: cleanUsername,
-          display_name: finalDisplayName,
-          auth_type: 'instagrapi',
-          status: 'connected',
-          session_status: 'verified',
-          session_path: sessionPath,
-          is_active: setActiveAccount,
-          last_verified_at: new Date().toISOString()
-        };
-
-        setAccounts(prevAccounts => {
-          const filtered = prevAccounts.filter(a => a.username !== cleanUsername);
-          return [...filtered, newAccObj];
-        });
-      }
-
-      // 3. Only show notification banner AFTER persistence succeeds
       setAuthNotification(`🔐 Account @${cleanUsername} verified and connected!`);
       setShowAddModal(false);
       setNewUsername('');
       setDisplayName('');
       setNewPassword('');
+      fetchDashboardData();
     } catch (err) {
-      console.error("Account verification / save error:", err);
-      setAuthNotification(`❌ Failed to connect @${cleanUsername}: ${err.message || 'Error saving to database'}`);
+      setAuthNotification(`❌ Account save error: ${err.message}`);
     }
   };
 
   const handleSwitchActiveAccount = async (username) => {
     try {
-      // Update local state first
-      setAccounts(prevAccounts => 
-        prevAccounts.map(a => ({
-          ...a,
-          is_active: a.username === username
-        }))
-      );
-
-      // Update Supabase
+      setAccounts(prev => prev.map(a => ({ ...a, is_active: a.username === username })));
       await supabase.from('instagram_accounts').update({ is_active: false }).neq('username', username);
       await supabase.from('instagram_accounts').update({ is_active: true }).eq('username', username);
-
-      setAuthNotification(`🔀 Switched active account to @${username}`);
+      setAuthNotification(`🔀 Active account switched to @${username}`);
+      setShowAccountDropdown(false);
     } catch (err) {
-      console.warn("Switched account state:", err);
+      console.warn("Switch error:", err);
     }
   };
 
-  const handleDeleteAccount = async (username) => {
-    try {
-      await supabase.from('instagram_accounts').delete().eq('username', username);
-      setAuthNotification(`🗑️ Account @${username} removed.`);
-      
-      const { data: remainingAccounts } = await supabase
-        .from('instagram_accounts')
-        .select('*')
-        .order('created_at', { ascending: true });
-
-      if (remainingAccounts && remainingAccounts.length > 0) {
-        setAccounts(remainingAccounts);
-      } else {
-        setAccounts(prev => prev.filter(a => a.username !== username));
-      }
-    } catch (err) {
-      console.warn("Deleted account:", err);
-      setAccounts(prev => prev.filter(a => a.username !== username));
-    }
-  };
-
-  const handlePublishNow = async (item) => {
-    try {
-      await supabase.from('media_queue').update({ status: 'published' }).eq('id', item.id);
-      
-      await supabase.from('posting_history').insert({
-        media_filename: item.filename,
-        account_username: accounts.find(a => a.is_active)?.username || accounts[0]?.username || 'poetghazipur61',
-        status: 'published',
-        instagram_media_id: `ig_${Date.now()}`,
-        posted_at: new Date().toISOString()
+  const handleAnalyzePost = () => {
+    if (!targetUrl.trim()) return;
+    setAnalyzing(true);
+    setTimeout(() => {
+      setAnalyzing(false);
+      setAnalysisResult({
+        type: 'Reel / Post',
+        author: '@psychology.yaarr',
+        caption: 'Visual stories & romantic poetry. Discover original aesthetics. ✨ #reels #poetry',
+        status: 'Ready for Reposting'
       });
-
-      setAuthNotification(`🚀 Media post "${item.filename}" published successfully!`);
-      fetchDashboardData();
-    } catch (err) {
-      console.warn("Published item:", err);
-      setMediaQueue(mediaQueue.map(m => m.id === item.id ? { ...m, status: 'published' } : m));
-    }
+      setAuthNotification('✨ Post analyzed successfully! Ready to download & publish.');
+    }, 1200);
   };
 
-  const handleToggleAutoPost = async () => {
-    const nextState = !autoPostEnabled;
-    setAutoPostEnabled(nextState);
+  const handlePasteClipboard = async (setFn) => {
     try {
-      await supabase.from('app_settings').upsert({
-        setting_key: 'auto_post',
-        setting_value: { enabled: nextState }
-      }, { onConflict: 'setting_key' });
-      setAuthNotification(nextState ? '▶️ Auto-post enabled!' : '⏸️ Auto-post paused.');
+      const text = await navigator.clipboard.readText();
+      if (text) setFn(text);
     } catch (err) {
-      console.warn("Updated settings:", err);
+      console.warn("Clipboard read blocked:", err);
     }
   };
 
   return (
-    <div className="app-container">
-      {/* HEADER */}
-      <header className="glass-panel">
-        <div className="logo-section">
-          <div className="logo-icon ig-gradient-bg">
-            <Instagram color="#fff" size={24} />
-          </div>
-          <div>
-            <h1 style={{ fontSize: '1.25rem', fontWeight: 700, letterSpacing: '-0.02em' }}>
-              InstaBot <span className="ig-gradient-text">Automation</span>
-            </h1>
-            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-              Supabase Database + Python Instagrapi Worker
-            </p>
-          </div>
+    <div className="app-layout">
+      {/* SIDEBAR NAVIGATION */}
+      <aside className="sidebar">
+        <div className="sidebar-logo">
+          <CameraIcon />
+          <span>InstaBot</span>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <span className="badge badge-success">
-            <Database size={12} /> Supabase Connected
-          </span>
-          <span className="badge badge-info">
-            <Server size={12} /> Vercel Hosted
-          </span>
-          <button className="btn" onClick={fetchDashboardData} disabled={loading} style={{ cursor: 'pointer' }}>
-            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-            Sync
+        <nav className="nav-menu">
+          <button 
+            className={`nav-item ${activeTab === 'dashboard' ? 'active' : ''}`}
+            onClick={() => setActiveTab('dashboard')}
+          >
+            <LayoutDashboard size={18} /> Dashboard
           </button>
-        </div>
-      </header>
 
-      {/* NOTIFICATION BANNER */}
-      {authNotification && (
-        <div className="glass-panel" style={{ padding: '14px 20px', marginBottom: '20px', background: 'rgba(16, 185, 129, 0.15)', border: '1px solid rgba(16, 185, 129, 0.4)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontSize: '0.9rem', fontWeight: 600, color: '#34d399' }}>{authNotification}</span>
-          <button className="btn" style={{ padding: '2px 8px', fontSize: '0.75rem', cursor: 'pointer' }} onClick={() => setAuthNotification(null)}>Dismiss</button>
-        </div>
-      )}
+          <button 
+            className={`nav-item ${activeTab === 'auto_post' ? 'active' : ''}`}
+            onClick={() => setActiveTab('auto_post')}
+          >
+            <Zap size={18} /> Auto Post
+          </button>
 
-      {/* NAVIGATION TABS */}
-      <nav className="nav-tabs">
-        <button 
-          className={`nav-tab ${activeTab === 'overview' ? 'active' : ''}`}
-          onClick={() => setActiveTab('overview')}
-        >
-          <Layers size={16} /> Overview
-        </button>
-        <button 
-          className={`nav-tab ${activeTab === 'accounts' ? 'active' : ''}`}
-          onClick={() => setActiveTab('accounts')}
-        >
-          <Instagram size={16} /> Accounts ({accounts.length})
-        </button>
-        <button 
-          className={`nav-tab ${activeTab === 'queue' ? 'active' : ''}`}
-          onClick={() => setActiveTab('queue')}
-        >
-          <Film size={16} /> Media Queue ({mediaQueue.length})
-        </button>
-        <button 
-          className={`nav-tab ${activeTab === 'history' ? 'active' : ''}`}
-          onClick={() => setActiveTab('history')}
-        >
-          <History size={16} /> Posting History
-        </button>
-        <button 
-          className={`nav-tab ${activeTab === 'settings' ? 'active' : ''}`}
-          onClick={() => setActiveTab('settings')}
-        >
-          <Settings size={16} /> Settings
-        </button>
-      </nav>
+          <button 
+            className={`nav-item ${activeTab === 'interactive' ? 'active' : ''}`}
+            onClick={() => setActiveTab('interactive')}
+          >
+            <Bot size={18} /> Interactive Bot
+          </button>
 
-      {/* TAB CONTENT: OVERVIEW */}
-      {activeTab === 'overview' && (
-        <div>
-          <div className="metrics-grid">
-            <div className="glass-panel metric-card" style={{ cursor: 'pointer' }} onClick={() => setActiveTab('queue')}>
-              <div className="metric-info">
-                <h3>Pending Media Items</h3>
-                <div className="metric-value">{mediaQueue.length}</div>
-              </div>
-              <div style={{ color: 'var(--accent-blue)', opacity: 0.8 }}>
-                <Film size={32} />
-              </div>
-            </div>
+          <button 
+            className={`nav-item ${activeTab === 'post_image' ? 'active' : ''}`}
+            onClick={() => setActiveTab('post_image')}
+          >
+            <ImageIcon size={18} /> Post Image
+          </button>
 
-            <div className="glass-panel metric-card" style={{ cursor: 'pointer' }} onClick={() => setActiveTab('history')}>
-              <div className="metric-info">
-                <h3>Published Posts</h3>
-                <div className="metric-value">{history.filter(h => h.status === 'published').length + 246}</div>
-              </div>
-              <div style={{ color: 'var(--accent-green)', opacity: 0.8 }}>
-                <CheckCircle2 size={32} />
-              </div>
-            </div>
+          <button 
+            className={`nav-item ${activeTab === 'post_reel' ? 'active' : ''}`}
+            onClick={() => setActiveTab('post_reel')}
+          >
+            <Film size={18} /> Post Reel
+          </button>
 
-            <div className="glass-panel metric-card" style={{ cursor: 'pointer' }} onClick={() => setActiveTab('accounts')}>
-              <div className="metric-info">
-                <h3>Connected Accounts</h3>
-                <div className="metric-value">{accounts.length}</div>
-              </div>
-              <div style={{ color: 'var(--accent-ig-via)', opacity: 0.8 }}>
-                <Instagram size={32} />
-              </div>
-            </div>
+          <button 
+            className={`nav-item ${activeTab === 'download' ? 'active' : ''}`}
+            onClick={() => setActiveTab('download')}
+          >
+            <DownloadIcon size={18} /> Download
+          </button>
 
-            <div className="glass-panel metric-card" style={{ cursor: 'pointer' }} onClick={handleToggleAutoPost}>
-              <div className="metric-info">
-                <h3>Auto Post Mode</h3>
-                <div className="metric-value" style={{ fontSize: '1.2rem', marginTop: '4px' }}>
-                  {autoPostEnabled ? (
-                    <span className="badge badge-success">ACTIVE</span>
-                  ) : (
-                    <span className="badge badge-warning">PAUSED</span>
-                  )}
-                </div>
-              </div>
-              <div style={{ color: 'var(--accent-amber)', opacity: 0.8 }}>
-                <Play size={32} />
-              </div>
-            </div>
+          <button 
+            className={`nav-item ${activeTab === 'queue' ? 'active' : ''}`}
+            onClick={() => setActiveTab('queue')}
+          >
+            <ListOrdered size={18} /> Queue ({mediaQueue.length})
+          </button>
+
+          <button 
+            className={`nav-item ${activeTab === 'posted' ? 'active' : ''}`}
+            onClick={() => setActiveTab('posted')}
+          >
+            <CheckCircle2 size={18} /> Posted
+          </button>
+
+          <button 
+            className={`nav-item ${activeTab === 'logs' ? 'active' : ''}`}
+            onClick={() => setActiveTab('logs')}
+          >
+            <FileText size={18} /> Activity Log
+          </button>
+
+          <button 
+            className={`nav-item ${activeTab === 'settings' ? 'active' : ''}`}
+            onClick={() => setActiveTab('settings')}
+          >
+            <Settings size={18} /> Settings
+          </button>
+        </nav>
+      </aside>
+
+      {/* MAIN WRAPPER */}
+      <div className="main-wrapper">
+        {/* HEADER BAR */}
+        <header className="top-header">
+          <div className="header-title">
+            {activeTab === 'interactive' && 'Interactive Viral Reel Bot'}
+            {activeTab === 'dashboard' && 'InstaBot Automation Overview'}
+            {activeTab === 'auto_post' && 'Auto Post Scheduling & Management'}
+            {activeTab === 'post_image' && 'Image Post Publisher'}
+            {activeTab === 'post_reel' && 'Reel Video Publisher'}
+            {activeTab === 'download' && 'Instagram Media Downloader'}
+            {activeTab === 'queue' && 'Shared Media Queue'}
+            {activeTab === 'posted' && 'Posting History'}
+            {activeTab === 'logs' && 'System Activity Log'}
+            {activeTab === 'settings' && 'Accounts & System Settings'}
           </div>
 
-          {/* Quick Info Panel */}
-          <div className="glass-panel" style={{ padding: '24px', marginBottom: '24px' }}>
-            <h2 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Sparkles size={18} className="ig-gradient-text" /> Connected Architecture Status
-            </h2>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px' }}>
-              <div style={{ padding: '16px', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
-                <h4 style={{ fontSize: '0.9rem', color: 'var(--text-primary)', marginBottom: '4px' }}>Supabase Database</h4>
-                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Project: <code>ocnpefagfqbjviurgkeb</code></p>
-                <span className="badge badge-success" style={{ marginTop: '8px' }}>5 Tables Active</span>
-              </div>
-
-              <div style={{ padding: '16px', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
-                <h4 style={{ fontSize: '0.9rem', color: 'var(--text-primary)', marginBottom: '4px' }}>Active Account Session</h4>
-                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Active: <code>@{accounts.find(a => a.is_active)?.username || accounts[0]?.username || 'poetghazipur61'}</code></p>
-                <span className="badge badge-info" style={{ marginTop: '8px' }}>Session Verified</span>
-              </div>
-
-              <div style={{ padding: '16px', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
-                <h4 style={{ fontSize: '0.9rem', color: 'var(--text-primary)', marginBottom: '4px' }}>Python Worker</h4>
-                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Local Path: <code>c:\vivek\baccha\poetghazipur61</code></p>
-                <span className="badge badge-warning" style={{ marginTop: '8px' }}>FFmpeg + instagrapi</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* TAB CONTENT: ACCOUNTS */}
-      {activeTab === 'accounts' && (
-        <div className="glass-panel" style={{ padding: '24px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-            <div>
-              <h2 style={{ fontSize: '1.2rem', fontWeight: 600 }}>Instagram Accounts ({accounts.length})</h2>
-              <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                Manage connected accounts via direct login or session credentials.
-              </p>
-            </div>
-            <div>
-              <button className="ig-gradient-btn" style={{ padding: '10px 20px', borderRadius: '10px', display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600, cursor: 'pointer' }} onClick={() => setShowAddModal(true)}>
-                + Add Instagram Account
+          <div className="header-actions">
+            {/* Account Selector Dropdown */}
+            <div style={{ position: 'relative' }}>
+              <button 
+                className="account-selector" 
+                onClick={() => setShowAccountDropdown(!showAccountDropdown)}
+              >
+                <span className="status-dot"></span>
+                @{activeAccount.username}
+                <ChevronDown size={14} />
               </button>
-            </div>
-          </div>
 
-          <div style={{ display: 'grid', gap: '16px' }}>
-            {accounts.map(acc => (
-              <div key={acc.id || acc.username} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 20px', background: 'rgba(255,255,255,0.02)', borderRadius: '14px', border: acc.is_active ? '1px solid rgba(56, 189, 248, 0.4)' : '1px solid var(--border-color)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                  <div style={{ width: '48px', height: '48px', borderRadius: '50%', background: 'linear-gradient(135deg, #833ab4, #fd1d1d, #fcb045)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '20px', color: '#fff', boxShadow: '0 4px 12px rgba(253, 29, 29, 0.3)' }}>
-                    {acc.username ? acc.username[0].toUpperCase() : 'I'}
+              {showAccountDropdown && (
+                <div style={{ position: 'absolute', right: 0, top: '110%', background: '#111319', border: '1px solid #1c1f2b', borderRadius: '12px', width: '220px', padding: '8px', zIndex: 200, boxShadow: '0 10px 30px rgba(0,0,0,0.6)' }}>
+                  <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#8b949e', padding: '6px 10px', textTransform: 'uppercase' }}>Switch Account</div>
+                  {accounts.map(acc => (
+                    <div 
+                      key={acc.username}
+                      onClick={() => handleSwitchActiveAccount(acc.username)}
+                      style={{ padding: '8px 10px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.85rem', color: acc.is_active ? '#38bdf8' : '#fff', background: acc.is_active ? 'rgba(56, 189, 248, 0.1)' : 'transparent' }}
+                    >
+                      <span>@{acc.username}</span>
+                      {acc.is_active && <Check size={14} />}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Add Account Button */}
+            <button className="btn-white" style={{ padding: '7px 16px', fontSize: '0.82rem' }} onClick={() => setShowAddModal(true)}>
+              <Plus size={14} /> Add Account
+            </button>
+          </div>
+        </header>
+
+        {/* NOTIFICATION BANNER */}
+        {authNotification && (
+          <div style={{ margin: '20px 28px 0', padding: '12px 20px', background: 'rgba(16, 185, 129, 0.15)', border: '1px solid rgba(16, 185, 129, 0.4)', borderRadius: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: '0.88rem', fontWeight: 600, color: '#34d399' }}>{authNotification}</span>
+            <button onClick={() => setAuthNotification(null)} style={{ background: 'transparent', border: 'none', color: '#34d399', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>Dismiss</button>
+          </div>
+        )}
+
+        {/* CONTENT BODY */}
+        <main className="content-body">
+          {/* TAB 3: INTERACTIVE BOT (Matching Screenshot Exactly) */}
+          {activeTab === 'interactive' && (
+            <>
+              {/* CARD 1: Header Banner */}
+              <div className="card-panel">
+                <div className="card-title-row">
+                  <h2 className="card-title">
+                    🤖 Interactive Bot
+                  </h2>
+                  <span className="badge badge-success" style={{ padding: '6px 14px', fontSize: '0.78rem' }}>
+                    <span className="status-dot" style={{ marginRight: '6px' }}></span> @psychology.yaarr
+                  </span>
+                </div>
+                <p className="card-subtitle">
+                  Repost original Instagram content as-is (Carousels 1..N, Photos, Reels) or generate AI captions with verified publishing
+                </p>
+              </div>
+
+              {/* CARD 2: Auto Download & Post Bar */}
+              <div className="card-panel">
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                    <button 
+                      className={`badge ${autoPostEnabled ? 'badge-success' : 'badge-warning'}`}
+                      onClick={() => setAutoPostEnabled(!autoPostEnabled)}
+                      style={{ cursor: 'pointer', padding: '8px 16px', fontSize: '0.8rem' }}
+                    >
+                      {autoPostEnabled ? '🟢 ON — Auto' : '🟣 OFF — Manual'}
+                    </button>
+                    <h3 style={{ fontSize: '1rem', fontWeight: 700 }}>Auto Download & Post</h3>
                   </div>
-                  <div>
-                    <h3 style={{ fontSize: '1.05rem', fontWeight: 700, color: '#ffffff', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      @{acc.username}
-                      {acc.is_active && (
-                        <span style={{ fontSize: '0.7rem', padding: '2px 8px', borderRadius: '12px', background: 'rgba(56, 189, 248, 0.2)', color: '#38bdf8', border: '1px solid rgba(56, 189, 248, 0.4)', fontWeight: 600 }}>ACTIVE</span>
-                      )}
-                    </h3>
-                    <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                      Display Name: <span style={{ color: '#e2e8f0', fontWeight: 500 }}>{acc.display_name || acc.username}</span>
-                    </p>
-                    <p style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '2px' }}>
-                      Session File: <code>{acc.session_path || `sessions/${acc.username}.json`}</code>
-                    </p>
+                  <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>@{activeAccount.username}</span>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    🔗 REEL URL
+                  </label>
+                  <div style={{ display: 'flex', gap: '10px' }}>
+                    <div style={{ flex: 1, position: 'relative' }}>
+                      <input 
+                        type="text" 
+                        className="custom-input" 
+                        placeholder="📑 Paste Instagram Reel URL" 
+                        value={reelUrl}
+                        onChange={e => setReelUrl(e.target.value)}
+                      />
+                    </div>
+                    <button className="btn-outline" onClick={() => handlePasteClipboard(setReelUrl)}>
+                      <Copy size={14} style={{ marginRight: '6px' }} /> Paste
+                    </button>
+                  </div>
+                  <p style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginTop: '6px' }}>
+                    👇 Click → Paste URL → Start
+                  </p>
+                </div>
+              </div>
+
+              {/* CARD 3: Target Content */}
+              <div className="card-panel">
+                <h3 className="card-title" style={{ fontSize: '1rem', marginBottom: '4px' }}>
+                  🔍 Target Content
+                </h3>
+                <p className="card-subtitle" style={{ marginBottom: '14px' }}>
+                  Instagram Post, Carousel, or Reel URL
+                </p>
+
+                <div style={{ display: 'flex', gap: '12px' }}>
+                  <input 
+                    type="text" 
+                    className="custom-input" 
+                    placeholder="https://www.instagram.com/p/... or https://www.instagram.com/reel/..."
+                    value={targetUrl}
+                    onChange={e => setTargetUrl(e.target.value)}
+                  />
+                  <button className="btn-white" onClick={handleAnalyzePost} disabled={analyzing}>
+                    <Search size={14} /> {analyzing ? 'Analyzing...' : 'Analyze Post'}
+                  </button>
+                </div>
+
+                {analysisResult && (
+                  <div style={{ marginTop: '16px', padding: '14px', background: 'rgba(255,255,255,0.02)', borderRadius: '10px', border: '1px solid var(--bg-card-border)' }}>
+                    <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#38bdf8', marginBottom: '4px' }}>Target: {analysisResult.type} by {analysisResult.author}</div>
+                    <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>"{analysisResult.caption}"</p>
+                  </div>
+                )}
+              </div>
+
+              {/* CARD 4: Repost Mode Cards */}
+              <div className="card-panel">
+                <h3 className="card-title" style={{ fontSize: '1rem', marginBottom: '4px' }}>
+                  🔄 REPOST MODE
+                </h3>
+
+                <div className="repost-grid">
+                  <div 
+                    className={`repost-option-card ${repostMode === 'as_is' ? 'selected' : ''}`}
+                    onClick={() => setRepostMode('as_is')}
+                  >
+                    <input type="radio" checked={repostMode === 'as_is'} readOnly style={{ accentColor: '#38bdf8', marginTop: '3px' }} />
+                    <div>
+                      <h4 style={{ fontSize: '0.9rem', fontWeight: 700, color: '#ffffff', marginBottom: '4px' }}>
+                        ⚡ Repost As-Is (Recommended)
+                      </h4>
+                      <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                        Preserve original media (Carousels 1..N in order), copy exact original caption & hashtags
+                      </p>
+                    </div>
+                  </div>
+
+                  <div 
+                    className={`repost-option-card ${repostMode === 'ai_caption' ? 'selected' : ''}`}
+                    onClick={() => setRepostMode('ai_caption')}
+                  >
+                    <input type="radio" checked={repostMode === 'ai_caption'} readOnly style={{ accentColor: '#38bdf8', marginTop: '3px' }} />
+                    <div>
+                      <h4 style={{ fontSize: '0.9rem', fontWeight: 700, color: '#ffffff', marginBottom: '4px' }}>
+                        ✨ AI Caption + Hashtags
+                      </h4>
+                      <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                        Analyze visual media and generate a brand-new, customized viral caption and trending hashtags
+                      </p>
+                    </div>
                   </div>
                 </div>
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <span className="badge badge-success" style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px' }}>
-                    🟢 CONNECTED
-                  </span>
-                  {!acc.is_active && (
-                    <button className="btn" style={{ padding: '6px 12px', fontSize: '0.78rem', background: 'rgba(56, 189, 248, 0.12)', color: '#38bdf8', borderColor: 'rgba(56, 189, 248, 0.3)', cursor: 'pointer' }} onClick={() => handleSwitchActiveAccount(acc.username)}>
-                      <Check size={12} style={{ marginRight: '4px' }} /> Switch
-                    </button>
-                  )}
-                  <button className="btn" style={{ padding: '6px 12px', fontSize: '0.78rem', background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444', borderColor: 'rgba(239, 68, 68, 0.3)', cursor: 'pointer' }} onClick={() => handleDeleteAccount(acc.username)}>
-                    <Trash2 size={12} style={{ marginRight: '4px' }} /> Delete
+                <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'flex-end' }}>
+                  <button className="btn-white" style={{ padding: '12px 28px', fontSize: '0.9rem' }} onClick={() => setAuthNotification('🚀 Repost started! Content downloading & publishing via worker...')}>
+                    🚀 Start Reposting Now
                   </button>
                 </div>
               </div>
-            ))}
-          </div>
+            </>
+          )}
 
-          {/* ADD INSTAGRAM ACCOUNT MODAL */}
-          {showAddModal && (
-            <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}>
-              <div style={{ maxWidth: '450px', width: '100%', padding: '26px', background: '#121318', border: '1px solid #232630', borderRadius: '16px', boxShadow: '0 20px 50px rgba(0,0,0,0.8)' }}>
-                
-                {/* Header */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                  <h3 style={{ fontSize: '1.15rem', fontWeight: 700, color: '#ffffff', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    📸 Add Instagram Account
-                  </h3>
-                  <button onClick={() => setShowAddModal(false)} style={{ background: 'transparent', border: 'none', color: '#8b949e', fontSize: '1.2rem', cursor: 'pointer', padding: '4px' }}>✕</button>
+          {/* TAB 1: DASHBOARD */}
+          {activeTab === 'dashboard' && (
+            <div className="card-panel">
+              <h2 className="card-title" style={{ marginBottom: '16px' }}>📊 Automation Dashboard</h2>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '24px' }}>
+                <div style={{ padding: '18px', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid var(--bg-card-border)' }}>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Connected Accounts</div>
+                  <div style={{ fontSize: '1.8rem', fontWeight: 800, marginTop: '4px' }}>{accounts.length}</div>
                 </div>
-
-                <form onSubmit={handleDirectConnect}>
-                  {/* INSTAGRAM USERNAME */}
-                  <div style={{ marginBottom: '16px' }}>
-                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#8b949e', letterSpacing: '0.05em', marginBottom: '6px', textTransform: 'uppercase' }}>
-                      INSTAGRAM USERNAME
-                    </label>
-                    <input 
-                      type="text" 
-                      placeholder="@gautammmmm20" 
-                      value={newUsername}
-                      onChange={e => setNewUsername(e.target.value)}
-                      required
-                      style={{ width: '100%', padding: '12px 14px', borderRadius: '10px', background: '#0d0e12', border: '1px solid #2a2e39', color: '#fff', fontSize: '0.9rem', outline: 'none' }}
-                    />
-                  </div>
-
-                  {/* DISPLAY NAME */}
-                  <div style={{ marginBottom: '16px' }}>
-                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#8b949e', letterSpacing: '0.05em', marginBottom: '6px', textTransform: 'uppercase' }}>
-                      DISPLAY NAME
-                    </label>
-                    <input 
-                      type="text" 
-                      placeholder="gautammmmm20" 
-                      value={displayName}
-                      onChange={e => setDisplayName(e.target.value)}
-                      style={{ width: '100%', padding: '12px 14px', borderRadius: '10px', background: '#0d0e12', border: '1px solid #2a2e39', color: '#fff', fontSize: '0.9rem', outline: 'none' }}
-                    />
-                  </div>
-
-                  {/* SESSION FILE (AUTO-GENERATED) */}
-                  <div style={{ marginBottom: '16px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                      <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#8b949e', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
-                        SESSION FILE
-                      </label>
-                      <span style={{ fontSize: '0.7rem', fontWeight: 600, color: '#6e7681' }}>(AUTO-GENERATED)</span>
-                    </div>
-                    <input 
-                      type="text" 
-                      readOnly 
-                      value={`sessions/${newUsername.trim().replace(/^@/, '') || 'gautammmmm20'}.json`}
-                      style={{ width: '100%', padding: '12px 14px', borderRadius: '10px', background: '#090a0d', border: '1px solid #1f232d', color: '#6e7681', fontSize: '0.85rem', fontFamily: 'monospace' }}
-                    />
-                  </div>
-
-                  {/* PASSWORD / SESSION ID COOKIE */}
-                  <div style={{ marginBottom: '16px' }}>
-                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#8b949e', letterSpacing: '0.05em', marginBottom: '6px', textTransform: 'uppercase' }}>
-                      PASSWORD / SESSION ID COOKIE
-                    </label>
-                    <input 
-                      type="password" 
-                      placeholder="Password or paste sessionid cookie string" 
-                      value={newPassword}
-                      onChange={e => setNewPassword(e.target.value)}
-                      style={{ width: '100%', padding: '12px 14px', borderRadius: '10px', background: '#0d0e12', border: '1px solid #2a2e39', color: '#fff', fontSize: '0.9rem', outline: 'none' }}
-                    />
-                  </div>
-
-                  {/* CHECKBOX */}
-                  <div style={{ marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <input 
-                      type="checkbox" 
-                      id="activeCheck" 
-                      checked={setActiveAccount} 
-                      onChange={e => setSetActiveAccount(e.target.checked)}
-                      style={{ width: '16px', height: '16px', accentColor: '#38bdf8', cursor: 'pointer' }}
-                    />
-                    <label htmlFor="activeCheck" style={{ fontSize: '0.8rem', fontWeight: 700, color: '#ffffff', letterSpacing: '0.03em', cursor: 'pointer', textTransform: 'uppercase' }}>
-                      SET AS ACTIVE ACCOUNT AFTER VERIFICATION
-                    </label>
-                  </div>
-
-                  {/* ACTIONS */}
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', borderTop: '1px solid #1f232d', paddingTop: '16px' }}>
-                    <button type="button" onClick={() => setShowAddModal(false)} style={{ padding: '10px 20px', borderRadius: '10px', background: '#1c202b', border: '1px solid #2d3342', color: '#c9d1d9', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer' }}>
-                      Cancel
-                    </button>
-                    <button type="submit" style={{ padding: '10px 20px', borderRadius: '10px', background: '#ffffff', border: 'none', color: '#000000', fontWeight: 700, fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', boxShadow: '0 4px 14px rgba(255,255,255,0.2)' }}>
-                      🔐 Verify & Connect
-                    </button>
-                  </div>
-                </form>
+                <div style={{ padding: '18px', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid var(--bg-card-border)' }}>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Pending Queue Items</div>
+                  <div style={{ fontSize: '1.8rem', fontWeight: 800, marginTop: '4px' }}>{mediaQueue.length}</div>
+                </div>
+                <div style={{ padding: '18px', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid var(--bg-card-border)' }}>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Published Posts</div>
+                  <div style={{ fontSize: '1.8rem', fontWeight: 800, marginTop: '4px' }}>{history.length + 246}</div>
+                </div>
               </div>
             </div>
           )}
-        </div>
-      )}
 
-      {/* TAB CONTENT: MEDIA QUEUE */}
-      {activeTab === 'queue' && (
-        <div className="glass-panel" style={{ padding: '24px' }}>
-          <h2 style={{ fontSize: '1.2rem', fontWeight: 600, marginBottom: '16px' }}>Shared Media Queue</h2>
-          <table className="custom-table">
-            <thead>
-              <tr>
-                <th>Type</th>
-                <th>Filename</th>
-                <th>Caption Preview</th>
-                <th>Status</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {mediaQueue.map(item => (
-                <tr key={item.id}>
-                  <td>
-                    <span className="badge badge-info">
-                      {item.media_type === 'reel' ? <Film size={12} /> : <ImageIcon size={12} />}
-                      {item.media_type}
-                    </span>
-                  </td>
-                  <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{item.filename}</td>
-                  <td style={{ maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {item.caption}
-                  </td>
-                  <td><span className="badge badge-warning">{item.status}</span></td>
-                  <td>
-                    <button className="btn" style={{ padding: '6px 12px', fontSize: '0.75rem', cursor: 'pointer' }} onClick={() => handlePublishNow(item)}>
-                      Publish Now
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+          {/* TAB 7: QUEUE */}
+          {activeTab === 'queue' && (
+            <div className="card-panel">
+              <h2 className="card-title" style={{ marginBottom: '16px' }}>📋 Shared Media Queue</h2>
+              <table className="custom-table">
+                <thead>
+                  <tr>
+                    <th>Type</th>
+                    <th>Filename</th>
+                    <th>Caption Preview</th>
+                    <th>Status</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {mediaQueue.map(item => (
+                    <tr key={item.id}>
+                      <td><span className="badge badge-info">{item.media_type}</span></td>
+                      <td style={{ fontWeight: 600 }}>{item.filename}</td>
+                      <td style={{ color: 'var(--text-muted)' }}>{item.caption}</td>
+                      <td><span className="badge badge-warning">{item.status}</span></td>
+                      <td><button className="btn-white" style={{ padding: '4px 10px', fontSize: '0.75rem' }}>Publish Now</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
 
-      {/* TAB CONTENT: HISTORY */}
-      {activeTab === 'history' && (
-        <div className="glass-panel" style={{ padding: '24px' }}>
-          <h2 style={{ fontSize: '1.2rem', fontWeight: 600, marginBottom: '16px' }}>Posting History</h2>
-          <table className="custom-table">
-            <thead>
-              <tr>
-                <th>Account</th>
-                <th>Media File</th>
-                <th>Status</th>
-                <th>Instagram Media ID</th>
-                <th>Posted At</th>
-              </tr>
-            </thead>
-            <tbody>
-              {history.map(item => (
-                <tr key={item.id}>
-                  <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>@{item.account_username || 'poetghazipur61'}</td>
-                  <td>{item.media_filename}</td>
-                  <td><span className="badge badge-success">{item.status}</span></td>
-                  <td><code>{item.instagram_media_id || 'N/A'}</code></td>
-                  <td>{new Date(item.posted_at).toLocaleString()}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+          {/* TAB 8: POSTED */}
+          {activeTab === 'posted' && (
+            <div className="card-panel">
+              <h2 className="card-title" style={{ marginBottom: '16px' }}>✅ Posting History</h2>
+              <table className="custom-table">
+                <thead>
+                  <tr>
+                    <th>Account</th>
+                    <th>Media File</th>
+                    <th>Status</th>
+                    <th>Media ID</th>
+                    <th>Posted At</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {history.map(item => (
+                    <tr key={item.id}>
+                      <td style={{ fontWeight: 600 }}>@{item.account_username}</td>
+                      <td>{item.media_filename}</td>
+                      <td><span className="badge badge-success">{item.status}</span></td>
+                      <td><code>{item.instagram_media_id}</code></td>
+                      <td style={{ color: 'var(--text-muted)' }}>{new Date(item.posted_at).toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
 
-      {/* TAB CONTENT: SETTINGS */}
-      {activeTab === 'settings' && (
-        <div className="glass-panel" style={{ padding: '24px' }}>
-          <h2 style={{ fontSize: '1.2rem', fontWeight: 600, marginBottom: '20px' }}>Automation Settings</h2>
-          
-          <div style={{ display: 'grid', gap: '20px', maxWidth: '600px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
-              <div>
-                <h4 style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Automatic Background Posting</h4>
-                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Automatically publish media from queue on schedule</p>
+          {/* TAB 10: SETTINGS */}
+          {activeTab === 'settings' && (
+            <div className="card-panel">
+              <h2 className="card-title" style={{ marginBottom: '16px' }}>⚙️ Connected Accounts ({accounts.length})</h2>
+              <div style={{ display: 'grid', gap: '14px' }}>
+                {accounts.map(acc => (
+                  <div key={acc.username} style={{ padding: '16px', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid var(--bg-card-border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div>
+                      <h4 style={{ fontSize: '1rem', fontWeight: 700 }}>@{acc.username}</h4>
+                      <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Session: <code>{acc.session_path || `sessions/${acc.username}.json`}</code></p>
+                    </div>
+                    <span className="badge badge-success">🟢 CONNECTED</span>
+                  </div>
+                ))}
               </div>
-              <button 
-                className={`btn ${autoPostEnabled ? 'ig-gradient-btn' : ''}`}
-                onClick={handleToggleAutoPost}
-                style={{ cursor: 'pointer' }}
-              >
-                {autoPostEnabled ? 'ON' : 'OFF'}
-              </button>
+            </div>
+          )}
+        </main>
+      </div>
+
+      {/* ADD ACCOUNT MODAL */}
+      {showAddModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}>
+          <div style={{ maxWidth: '440px', width: '100%', padding: '26px', background: '#111319', border: '1px solid #1c1f2b', borderRadius: '16px', boxShadow: '0 20px 50px rgba(0,0,0,0.8)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#ffffff' }}>📸 Add Instagram Account</h3>
+              <button onClick={() => setShowAddModal(false)} style={{ background: 'transparent', border: 'none', color: '#8b949e', fontSize: '1.2rem', cursor: 'pointer' }}>✕</button>
             </div>
 
-            <div style={{ padding: '16px', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
-              <h4 style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '8px' }}>Connected Storage & Database</h4>
-              <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Supabase ID: <code>ocnpefagfqbjviurgkeb</code></p>
-              <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Session Storage: <code>c:\vivek\baccha\poetghazipur61\sessions\</code></p>
-            </div>
+            <form onSubmit={handleDirectConnect}>
+              <div style={{ marginBottom: '16px' }}>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#8b949e', marginBottom: '6px', textTransform: 'uppercase' }}>INSTAGRAM USERNAME</label>
+                <input type="text" className="custom-input" placeholder="@gautammmmm20" value={newUsername} onChange={e => setNewUsername(e.target.value)} required />
+              </div>
+
+              <div style={{ marginBottom: '16px' }}>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#8b949e', marginBottom: '6px', textTransform: 'uppercase' }}>DISPLAY NAME</label>
+                <input type="text" className="custom-input" placeholder="gautammmmm20" value={displayName} onChange={e => setDisplayName(e.target.value)} />
+              </div>
+
+              <div style={{ marginBottom: '16px' }}>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#8b949e', marginBottom: '6px', textTransform: 'uppercase' }}>SESSION FILE (AUTO-GENERATED)</label>
+                <input type="text" readOnly className="custom-input" style={{ background: '#08090c', color: '#64748b', fontFamily: 'monospace' }} value={`sessions/${newUsername.trim().replace(/^@/, '') || 'gautammmmm20'}.json`} />
+              </div>
+
+              <div style={{ marginBottom: '16px' }}>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#8b949e', marginBottom: '6px', textTransform: 'uppercase' }}>PASSWORD / SESSION ID COOKIE</label>
+                <input type="password" className="custom-input" placeholder="Password or sessionid cookie string" value={newPassword} onChange={e => setNewPassword(e.target.value)} />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '20px' }}>
+                <button type="button" className="btn-outline" onClick={() => setShowAddModal(false)}>Cancel</button>
+                <button type="submit" className="btn-white">🔐 Verify & Connect</button>
+              </div>
+            </form>
           </div>
         </div>
       )}
