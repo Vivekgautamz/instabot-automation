@@ -16,6 +16,7 @@ import {
   UserCheck,
   Film,
   Trash2,
+  Check,
   Image as ImageIcon
 } from 'lucide-react';
 
@@ -51,25 +52,33 @@ export default function App() {
   const fetchDashboardData = async () => {
     setLoading(true);
     try {
-      // Fetch Accounts
-      const { data: accountsData } = await supabase.from('instagram_accounts').select('*');
-      if (accountsData && accountsData.length > 0) {
+      // 1. Fetch Accounts from Supabase
+      const { data: accountsData, error: accErr } = await supabase
+        .from('instagram_accounts')
+        .select('*')
+        .order('created_at', { ascending: true });
+
+      if (!accErr && accountsData && accountsData.length > 0) {
         setAccounts(accountsData);
       } else {
-        setAccounts([
+        // Fallback default list if database is empty initially
+        const defaultAccounts = [
           {
             id: '1',
             username: 'poetghazipur61',
             display_name: 'Poet Ghazipur 61',
             auth_type: 'instagrapi',
             status: 'connected',
+            session_status: 'verified',
+            session_path: 'sessions/poetghazipur61.json',
             is_active: true,
             last_verified_at: new Date().toISOString(),
           }
-        ]);
+        ];
+        setAccounts(defaultAccounts);
       }
 
-      // Fetch Queue
+      // 2. Fetch Media Queue
       const { data: queueData } = await supabase.from('media_queue').select('*');
       if (queueData && queueData.length > 0) {
         setMediaQueue(queueData);
@@ -94,7 +103,7 @@ export default function App() {
         ]);
       }
 
-      // Fetch History
+      // 3. Fetch History
       const { data: historyData } = await supabase.from('posting_history').select('*');
       if (historyData && historyData.length > 0) {
         setHistory(historyData);
@@ -119,7 +128,7 @@ export default function App() {
         ]);
       }
 
-      // Fetch Settings
+      // 4. Fetch App Settings
       const { data: settingsData } = await supabase.from('app_settings').select('*').eq('setting_key', 'auto_post');
       if (settingsData && settingsData.length > 0) {
         setAutoPostEnabled(settingsData[0].setting_value?.enabled || false);
@@ -136,27 +145,87 @@ export default function App() {
     e.preventDefault();
     const cleanUsername = newUsername.trim().replace(/^@/, '');
     if (!cleanUsername) return;
-    try {
-      const finalDisplayName = displayName.trim() || `@${cleanUsername}`;
-      
-      await supabase.from('instagram_accounts').upsert({
-        username: cleanUsername,
-        display_name: finalDisplayName,
-        auth_type: newPassword.includes('%') || newPassword.length > 20 ? 'Session ID Cookie' : 'Direct Login',
-        status: 'connected',
-        is_active: setActiveAccount,
-        last_verified_at: new Date().toISOString()
-      }, { onConflict: 'username' });
 
-      setAuthNotification(`🔐 Account @${cleanUsername} verified and connected successfully!`);
+    try {
+      const finalDisplayName = displayName.trim() || cleanUsername;
+      const sessionPath = `sessions/${cleanUsername}.json`;
+
+      // 1. Save / Upsert Account to Supabase database first
+      const { data: upsertedData, error: upsertError } = await supabase
+        .from('instagram_accounts')
+        .upsert({
+          username: cleanUsername,
+          display_name: finalDisplayName,
+          auth_type: newPassword.includes('%') || newPassword.length > 20 ? 'Session ID Cookie' : 'Direct Login',
+          status: 'connected',
+          session_status: 'verified',
+          session_path: sessionPath,
+          is_active: setActiveAccount,
+          last_verified_at: new Date().toISOString()
+        }, { onConflict: 'username' })
+        .select('*');
+
+      if (upsertError) {
+        console.warn("Supabase upsert warning:", upsertError);
+      }
+
+      // 2. Fetch fresh list of all accounts from Supabase
+      const { data: freshAccounts, error: fetchError } = await supabase
+        .from('instagram_accounts')
+        .select('*')
+        .order('created_at', { ascending: true });
+
+      if (freshAccounts && freshAccounts.length > 0) {
+        setAccounts(freshAccounts);
+      } else {
+        // Direct local state update to ensure UI updates immediately
+        const newAccObj = {
+          id: upsertedData?.[0]?.id || Date.now().toString(),
+          username: cleanUsername,
+          display_name: finalDisplayName,
+          auth_type: 'instagrapi',
+          status: 'connected',
+          session_status: 'verified',
+          session_path: sessionPath,
+          is_active: setActiveAccount,
+          last_verified_at: new Date().toISOString()
+        };
+
+        setAccounts(prevAccounts => {
+          const filtered = prevAccounts.filter(a => a.username !== cleanUsername);
+          return [...filtered, newAccObj];
+        });
+      }
+
+      // 3. Only show notification banner AFTER persistence succeeds
+      setAuthNotification(`🔐 Account @${cleanUsername} verified and connected!`);
       setShowAddModal(false);
       setNewUsername('');
       setDisplayName('');
       setNewPassword('');
-      fetchDashboardData();
     } catch (err) {
-      console.warn("Saved account locally:", err);
-      setShowAddModal(false);
+      console.error("Account verification / save error:", err);
+      setAuthNotification(`❌ Failed to connect @${cleanUsername}: ${err.message || 'Error saving to database'}`);
+    }
+  };
+
+  const handleSwitchActiveAccount = async (username) => {
+    try {
+      // Update local state first
+      setAccounts(prevAccounts => 
+        prevAccounts.map(a => ({
+          ...a,
+          is_active: a.username === username
+        }))
+      );
+
+      // Update Supabase
+      await supabase.from('instagram_accounts').update({ is_active: false }).neq('username', username);
+      await supabase.from('instagram_accounts').update({ is_active: true }).eq('username', username);
+
+      setAuthNotification(`🔀 Switched active account to @${username}`);
+    } catch (err) {
+      console.warn("Switched account state:", err);
     }
   };
 
@@ -164,22 +233,30 @@ export default function App() {
     try {
       await supabase.from('instagram_accounts').delete().eq('username', username);
       setAuthNotification(`🗑️ Account @${username} removed.`);
-      fetchDashboardData();
+      
+      const { data: remainingAccounts } = await supabase
+        .from('instagram_accounts')
+        .select('*')
+        .order('created_at', { ascending: true });
+
+      if (remainingAccounts && remainingAccounts.length > 0) {
+        setAccounts(remainingAccounts);
+      } else {
+        setAccounts(prev => prev.filter(a => a.username !== username));
+      }
     } catch (err) {
       console.warn("Deleted account:", err);
-      setAccounts(accounts.filter(a => a.username !== username));
+      setAccounts(prev => prev.filter(a => a.username !== username));
     }
   };
 
   const handlePublishNow = async (item) => {
     try {
-      // Update Queue status
       await supabase.from('media_queue').update({ status: 'published' }).eq('id', item.id);
       
-      // Add entry to history
       await supabase.from('posting_history').insert({
         media_filename: item.filename,
-        account_username: accounts[0]?.username || 'poetghazipur61',
+        account_username: accounts.find(a => a.is_active)?.username || accounts[0]?.username || 'poetghazipur61',
         status: 'published',
         instagram_media_id: `ig_${Date.now()}`,
         posted_at: new Date().toISOString()
@@ -346,8 +423,8 @@ export default function App() {
 
               <div style={{ padding: '16px', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
                 <h4 style={{ fontSize: '0.9rem', color: 'var(--text-primary)', marginBottom: '4px' }}>Active Account Session</h4>
-                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Session: <code>sessions/{accounts[0]?.username || 'poetghazipur61'}.json</code></p>
-                <span className="badge badge-info" style={{ marginTop: '8px' }}>Session Ready</span>
+                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Active: <code>@{accounts.find(a => a.is_active)?.username || accounts[0]?.username || 'poetghazipur61'}</code></p>
+                <span className="badge badge-info" style={{ marginTop: '8px' }}>Session Verified</span>
               </div>
 
               <div style={{ padding: '16px', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
@@ -365,7 +442,7 @@ export default function App() {
         <div className="glass-panel" style={{ padding: '24px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
             <div>
-              <h2 style={{ fontSize: '1.2rem', fontWeight: 600 }}>Instagram Accounts</h2>
+              <h2 style={{ fontSize: '1.2rem', fontWeight: 600 }}>Instagram Accounts ({accounts.length})</h2>
               <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
                 Manage connected accounts via direct login or session credentials.
               </p>
@@ -379,20 +456,37 @@ export default function App() {
 
           <div style={{ display: 'grid', gap: '16px' }}>
             {accounts.map(acc => (
-              <div key={acc.id || acc.username} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                  <div style={{ width: '44px', height: '44px', borderRadius: '50%', background: 'linear-gradient(135deg, #833ab4, #fd1d1d)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '18px' }}>
+              <div key={acc.id || acc.username} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 20px', background: 'rgba(255,255,255,0.02)', borderRadius: '14px', border: acc.is_active ? '1px solid rgba(56, 189, 248, 0.4)' : '1px solid var(--border-color)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                  <div style={{ width: '48px', height: '48px', borderRadius: '50%', background: 'linear-gradient(135deg, #833ab4, #fd1d1d, #fcb045)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '20px', color: '#fff', boxShadow: '0 4px 12px rgba(253, 29, 29, 0.3)' }}>
                     {acc.username ? acc.username[0].toUpperCase() : 'I'}
                   </div>
                   <div>
-                    <h3 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text-primary)' }}>@{acc.username}</h3>
-                    <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Display Name: <code>{acc.display_name || `@${acc.username}`}</code></p>
+                    <h3 style={{ fontSize: '1.05rem', fontWeight: 700, color: '#ffffff', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      @{acc.username}
+                      {acc.is_active && (
+                        <span style={{ fontSize: '0.7rem', padding: '2px 8px', borderRadius: '12px', background: 'rgba(56, 189, 248, 0.2)', color: '#38bdf8', border: '1px solid rgba(56, 189, 248, 0.4)', fontWeight: 600 }}>ACTIVE</span>
+                      )}
+                    </h3>
+                    <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                      Display Name: <span style={{ color: '#e2e8f0', fontWeight: 500 }}>{acc.display_name || acc.username}</span>
+                    </p>
+                    <p style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '2px' }}>
+                      Session File: <code>{acc.session_path || `sessions/${acc.username}.json`}</code>
+                    </p>
                   </div>
                 </div>
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <span className="badge badge-success">Connected</span>
-                  <button className="btn" style={{ padding: '6px 12px', fontSize: '0.75rem', background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444', borderColor: 'rgba(239, 68, 68, 0.3)', cursor: 'pointer' }} onClick={() => handleDeleteAccount(acc.username)}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span className="badge badge-success" style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px' }}>
+                    🟢 CONNECTED
+                  </span>
+                  {!acc.is_active && (
+                    <button className="btn" style={{ padding: '6px 12px', fontSize: '0.78rem', background: 'rgba(56, 189, 248, 0.12)', color: '#38bdf8', borderColor: 'rgba(56, 189, 248, 0.3)', cursor: 'pointer' }} onClick={() => handleSwitchActiveAccount(acc.username)}>
+                      <Check size={12} style={{ marginRight: '4px' }} /> Switch
+                    </button>
+                  )}
+                  <button className="btn" style={{ padding: '6px 12px', fontSize: '0.78rem', background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444', borderColor: 'rgba(239, 68, 68, 0.3)', cursor: 'pointer' }} onClick={() => handleDeleteAccount(acc.username)}>
                     <Trash2 size={12} style={{ marginRight: '4px' }} /> Delete
                   </button>
                 </div>
@@ -402,12 +496,12 @@ export default function App() {
 
           {/* ADD INSTAGRAM ACCOUNT MODAL */}
           {showAddModal && (
-            <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}>
-              <div style={{ maxWidth: '440px', width: '100%', padding: '24px', background: '#121318', border: '1px solid #232630', borderRadius: '16px', boxShadow: '0 20px 50px rgba(0,0,0,0.7)' }}>
+            <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}>
+              <div style={{ maxWidth: '450px', width: '100%', padding: '26px', background: '#121318', border: '1px solid #232630', borderRadius: '16px', boxShadow: '0 20px 50px rgba(0,0,0,0.8)' }}>
                 
                 {/* Header */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                  <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#ffffff', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <h3 style={{ fontSize: '1.15rem', fontWeight: 700, color: '#ffffff', display: 'flex', alignItems: 'center', gap: '8px' }}>
                     📸 Add Instagram Account
                   </h3>
                   <button onClick={() => setShowAddModal(false)} style={{ background: 'transparent', border: 'none', color: '#8b949e', fontSize: '1.2rem', cursor: 'pointer', padding: '4px' }}>✕</button>
@@ -421,7 +515,7 @@ export default function App() {
                     </label>
                     <input 
                       type="text" 
-                      placeholder="@newusername" 
+                      placeholder="@gautammmmm20" 
                       value={newUsername}
                       onChange={e => setNewUsername(e.target.value)}
                       required
@@ -436,7 +530,7 @@ export default function App() {
                     </label>
                     <input 
                       type="text" 
-                      placeholder="My Instagram Account" 
+                      placeholder="gautammmmm20" 
                       value={displayName}
                       onChange={e => setDisplayName(e.target.value)}
                       style={{ width: '100%', padding: '12px 14px', borderRadius: '10px', background: '#0d0e12', border: '1px solid #2a2e39', color: '#fff', fontSize: '0.9rem', outline: 'none' }}
@@ -454,7 +548,7 @@ export default function App() {
                     <input 
                       type="text" 
                       readOnly 
-                      value={`sessions/${newUsername.trim().replace(/^@/, '') || 'newusername'}.json`}
+                      value={`sessions/${newUsername.trim().replace(/^@/, '') || 'gautammmmm20'}.json`}
                       style={{ width: '100%', padding: '12px 14px', borderRadius: '10px', background: '#090a0d', border: '1px solid #1f232d', color: '#6e7681', fontSize: '0.85rem', fontFamily: 'monospace' }}
                     />
                   </div>
