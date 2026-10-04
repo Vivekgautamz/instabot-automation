@@ -141,7 +141,7 @@ class InstaBotAPIHandler(BaseHTTPRequestHandler):
             return
 
         if clean_path in ["/api/accounts/verify-session", "/api/accounts/verify", "/api/accounts/refresh-session"] or "/verify-session" in clean_path or "/refresh-session" in clean_path:
-            username = data.get("username")
+            username = (data.get("username") or "").strip()
             if not username:
                 parts = clean_path.split("/")
                 if len(parts) >= 5 and parts[2] == "accounts":
@@ -157,7 +157,7 @@ class InstaBotAPIHandler(BaseHTTPRequestHandler):
             return
 
         if clean_path in ["/api/accounts/activate", "/api/accounts/select"] or "/activate" in clean_path:
-            username = data.get("username")
+            username = (data.get("username") or "").strip()
             if not username:
                 parts = clean_path.split("/")
                 if len(parts) >= 5 and parts[2] == "accounts":
@@ -173,7 +173,7 @@ class InstaBotAPIHandler(BaseHTTPRequestHandler):
             return
 
         if clean_path in ["/api/accounts/delete", "/api/accounts/remove"] or "/delete" in clean_path:
-            username = data.get("username")
+            username = (data.get("username") or "").strip()
             if not username:
                 parts = clean_path.split("/")
                 if len(parts) >= 5 and parts[2] == "accounts":
