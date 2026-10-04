@@ -111,46 +111,72 @@ export default function App() {
     }
   };
 
-  const triggerAutomaticRepost = (url) => {
+  const triggerAutomaticRepost = async (url) => {
     if (processingStatus === 'analyzing' || processingStatus === 'downloading' || processingStatus === 'publishing') return;
     
     setProcessingStatus('analyzing');
     setAuthNotification(`🔍 Auto-Detecting media type for URL: ${url}`);
     
-    setTimeout(() => {
-      const isReel = url.includes('/reel/') || url.includes('/reels/');
-      const isCarousel = url.includes('/p/') && !isReel;
-      const mediaType = isReel ? 'Reel' : (isCarousel ? 'Carousel (1..N)' : 'Single Photo');
+    const isReel = url.includes('/reel/') || url.includes('/reels/');
+    const isCarousel = url.includes('/p/') && !isReel;
+    const mediaType = isReel ? 'Reel' : (isCarousel ? 'Carousel (1..N)' : 'Single Photo');
 
-      setProcessingStatus('downloading');
-      setAuthNotification(`⬇️ Downloading original ${mediaType} & preserving media structure...`);
+    setProcessingStatus('downloading');
+    setAuthNotification(`⬇️ Downloading ${mediaType} & connecting to Instagram API...`);
 
-      setTimeout(() => {
-        setProcessingStatus('publishing');
-        setAuthNotification(`🚀 Publishing as-is to @${activeAccount.username}...`);
+    try {
+      // 1. Try calling local Python API Server
+      const apiResponse = await fetch('http://localhost:8000/api/process-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: url,
+          account: activeAccount.username,
+          repost_mode: repostMode
+        })
+      });
 
-        setTimeout(() => {
+      if (apiResponse.ok) {
+        const resData = await apiResponse.json();
+        if (resData.success) {
           setProcessingStatus('done');
-          setAuthNotification(`✅ Successfully published ${mediaType} to @${activeAccount.username}! Record saved to posting_history & queue.`);
-
-          // Add to local state & database
-          const newEntry = {
-            id: `auto_${Date.now()}`,
-            media_filename: `auto_download_${Date.now()}.${isReel ? 'mp4' : 'jpg'}`,
-            account_username: activeAccount.username,
-            status: 'published',
-            instagram_media_id: `ig_${Date.now()}`,
-            posted_at: new Date().toISOString()
-          };
-          setHistory(prev => [newEntry, ...prev]);
+          setAuthNotification(`✅ Successfully published ${resData.media_type || mediaType} to @${activeAccount.username}! Live link: ${resData.instagram_url || 'Instagram'}`);
           setReelUrl('');
           setTargetUrl('');
+          fetchDashboardData();
+          return;
+        } else {
+          setProcessingStatus('error');
+          setAuthNotification(`❌ Instagram Publishing Failed: ${resData.error}`);
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn("Backend API server not reachable at http://localhost:8000. Falling back to Supabase queueing...", err);
+    }
 
-          // Save to Supabase
-          supabase.from('posting_history').insert(newEntry).then(() => fetchDashboardData());
-        }, 1500);
-      }, 1500);
-    }, 1200);
+    // 2. Queue in Supabase for Python backend worker
+    try {
+      setProcessingStatus('publishing');
+      const queueItem = {
+        media_type: mediaType.toLowerCase(),
+        filename: url,
+        caption: `Auto repost (${repostMode}): ${url}`,
+        status: 'ready',
+        account_username: activeAccount.username,
+        created_at: new Date().toISOString()
+      };
+
+      await supabase.from('media_queue').insert(queueItem);
+      setProcessingStatus('done');
+      setAuthNotification(`⚠️ Queued ${mediaType} in media_queue for @${activeAccount.username}! Start 'python api_server.py' locally to process real Instagram posting.`);
+      setReelUrl('');
+      setTargetUrl('');
+      fetchDashboardData();
+    } catch (err) {
+      setProcessingStatus('error');
+      setAuthNotification(`❌ Error queueing post: ${err.message}`);
+    }
   };
 
   const handleManualAnalyze = () => {
@@ -179,32 +205,69 @@ export default function App() {
       setEditableCaption(captionText);
       setEditableHashtags(hashtagsText);
       setAuthNotification('✨ Post analyzed! Review details below before downloading or publishing.');
-    }, 1000);
+    }, 800);
   };
 
   const handleManualPublish = async () => {
-    if (!analysisResult) return;
+    const url = targetUrl || reelUrl;
+    if (!url.trim()) return;
     setProcessingStatus('publishing');
-    setAuthNotification(`🚀 Publishing analyzed ${analysisResult.type} to @${activeAccount.username}...`);
+    setAuthNotification(`🚀 Publishing to @${activeAccount.username} on Instagram...`);
 
-    setTimeout(() => {
-      setProcessingStatus('done');
-      const newEntry = {
-        id: `man_${Date.now()}`,
-        media_filename: `manual_post_${Date.now()}.${analysisResult.type === 'Reel' ? 'mp4' : 'jpg'}`,
+    const fullCaption = `${editableCaption}\n\n${editableHashtags}`;
+
+    try {
+      const apiResponse = await fetch('http://localhost:8000/api/process-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: url,
+          account: activeAccount.username,
+          repost_mode: repostMode,
+          custom_caption: fullCaption
+        })
+      });
+
+      if (apiResponse.ok) {
+        const resData = await apiResponse.json();
+        if (resData.success) {
+          setProcessingStatus('done');
+          setAuthNotification(`🎉 Verified Published to @${activeAccount.username}! Link: ${resData.instagram_url || 'Instagram'}`);
+          setAnalysisResult(null);
+          setTargetUrl('');
+          setReelUrl('');
+          fetchDashboardData();
+          return;
+        } else {
+          setProcessingStatus('error');
+          setAuthNotification(`❌ Instagram Publishing Failed: ${resData.error}`);
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn("Backend API not running locally. Queueing item...", err);
+    }
+
+    // Queue fallback
+    try {
+      await supabase.from('media_queue').insert({
+        media_type: analysisResult ? analysisResult.type : 'post',
+        filename: url,
+        caption: fullCaption,
+        status: 'ready',
         account_username: activeAccount.username,
-        status: 'published',
-        instagram_media_id: `ig_${Date.now()}`,
-        posted_at: new Date().toISOString()
-      };
-      setHistory(prev => [newEntry, ...prev]);
-      setAuthNotification(`🎉 Verified published to @${activeAccount.username}!`);
+        created_at: new Date().toISOString()
+      });
+      setProcessingStatus('done');
+      setAuthNotification(`⚠️ Queued for @${activeAccount.username}! Run 'python api_server.py' to complete Instagram publishing.`);
       setAnalysisResult(null);
       setTargetUrl('');
       setReelUrl('');
-
-      supabase.from('posting_history').insert(newEntry).then(() => fetchDashboardData());
-    }, 1500);
+      fetchDashboardData();
+    } catch (err) {
+      setProcessingStatus('error');
+      setAuthNotification(`❌ Error: ${err.message}`);
+    }
   };
 
   useEffect(() => {
