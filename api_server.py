@@ -44,8 +44,46 @@ class InstaBotAPIHandler(BaseHTTPRequestHandler):
             self.end_headers()
             response = {"status": "online", "message": "InstaBot Backend API Service is active"}
             self.wfile.write(json.dumps(response).encode("utf-8"))
+            return
+
+        # Serve static frontend files from frontend/dist
+        dist_dir = BASE_DIR / "frontend" / "dist"
+        rel_path = parsed.path.lstrip("/")
+        target_file = dist_dir / rel_path
+
+        if rel_path and target_file.exists() and target_file.is_file():
+            self._serve_file(target_file)
         else:
-            self.send_response(404)
+            # Fallback to index.html for Single Page Application (SPA) routing
+            index_file = dist_dir / "index.html"
+            if index_file.exists():
+                self._serve_file(index_file, content_type="text/html")
+            else:
+                self.send_response(404)
+                self.end_headers()
+
+    def _serve_file(self, file_path: Path, content_type: str = None):
+        if content_type is None:
+            ext = file_path.suffix.lower()
+            if ext == ".html": content_type = "text/html"
+            elif ext == ".js": content_type = "application/javascript"
+            elif ext == ".css": content_type = "text/css"
+            elif ext == ".json": content_type = "application/json"
+            elif ext == ".png": content_type = "image/png"
+            elif ext == ".jpg" or ext == ".jpeg": content_type = "image/jpeg"
+            elif ext == ".svg": content_type = "image/svg+xml"
+            else: content_type = "application/octet-stream"
+
+        try:
+            with open(file_path, "rb") as f:
+                content = f.read()
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self._send_cors_headers()
+            self.end_headers()
+            self.wfile.write(content)
+        except Exception as e:
+            self.send_response(500)
             self.end_headers()
 
     def do_POST(self):
