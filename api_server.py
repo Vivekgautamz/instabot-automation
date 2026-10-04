@@ -247,7 +247,49 @@ def process_and_publish_instagram_post(url: str, username: str, repost_mode: str
         }
 
 
+def poll_supabase_queue_worker():
+    """Background thread polling Supabase media_queue every 5s for items submitted via Vercel UI."""
+    import time
+    print("[*] Supabase Media Queue Worker Thread Started (Listening for Vercel Submissions)...")
+    
+    while True:
+        try:
+            if sm.is_configured():
+                res = sm.client.table("media_queue").select("*").eq("status", "ready").limit(1).execute()
+                items = res.data or []
+                for item in items:
+                    item_id = item.get("id")
+                    target_url = (item.get("file_path") or item.get("filename") or "").strip()
+                    account = item.get("account_username", "gautammmmm20").strip()
+                    custom_caption = item.get("caption", "").strip()
+
+                    if target_url and target_url.startswith("http"):
+                        print(f"\n[QUEUE WORKER] Picked up Vercel job #{item_id}: Reposting {target_url} to @{account}...")
+                        sm.client.table("media_queue").update({"status": "processing"}).eq("id", item_id).execute()
+
+                        result = process_and_publish_instagram_post(target_url, account, "as_is", custom_caption)
+
+                        if result.get("success"):
+                            sm.client.table("media_queue").update({
+                                "status": "published"
+                            }).eq("id", item_id).execute()
+                            print(f"[QUEUE WORKER OK] Post #{item_id} published successfully! Link: {result.get('instagram_url')}")
+                        else:
+                            sm.client.table("media_queue").update({
+                                "status": "failed"
+                            }).eq("id", item_id).execute()
+                            print(f"[QUEUE WORKER FAIL] Post #{item_id} failed: {result.get('error')}")
+        except Exception as e:
+            pass
+        time.sleep(5)
+
+
 def run_server(port=8000):
+    import threading
+    # Start queue worker daemon thread
+    queue_thread = threading.Thread(target=poll_supabase_queue_worker, daemon=True)
+    queue_thread.start()
+
     server_address = ("", port)
     httpd = HTTPServer(server_address, InstaBotAPIHandler)
     print("=" * 60)
@@ -255,6 +297,7 @@ def run_server(port=8000):
     print("=" * 60)
     print(f"   Server listening on: http://localhost:{port}")
     print(f"   API Endpoint:        http://localhost:{port}/api/process-url")
+    print(f"   Vercel Queue Worker: Active (Polling Supabase media_queue)")
     print("=" * 60)
     try:
         httpd.serve_forever()

@@ -161,9 +161,9 @@ export default function App() {
       const queueItem = {
         media_type: mediaType.toLowerCase(),
         filename: url,
+        file_path: url,
         caption: `Auto repost (${repostMode}): ${url}`,
         status: 'ready',
-        account_username: activeAccount.username,
         created_at: new Date().toISOString()
       };
 
@@ -253,9 +253,9 @@ export default function App() {
       await supabase.from('media_queue').insert({
         media_type: analysisResult ? analysisResult.type : 'post',
         filename: url,
+        file_path: url,
         caption: fullCaption,
         status: 'ready',
-        account_username: activeAccount.username,
         created_at: new Date().toISOString()
       });
       setProcessingStatus('done');
