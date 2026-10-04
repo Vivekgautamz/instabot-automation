@@ -399,17 +399,31 @@ def create_new_session_backend(username: str, password: str = "", session_id: st
             return {
                 "success": False, 
                 "requires_2fa": True,
-                "error": "Two-Factor Authentication (2FA) required. Please provide 6-digit verification code."
+                "error": "Two-Factor Authentication (2FA) required. Please enter the 6-digit verification code below."
             }
-        except ChallengeRequired:
+        except ChallengeRequired as ce:
             return {
                 "success": False,
-                "error": "Instagram Checkpoint / Security Challenge required. Please approve login in your Instagram mobile app."
+                "requires_approval": True,
+                "error": "Instagram Checkpoint / In-App Approval Required. Please open your Instagram mobile app, tap 'This Was Me' to approve, then click 'Verify Session'."
             }
         except BadPassword:
-            return {"success": False, "error": "Incorrect Instagram password."}
+            return {"success": False, "error": "Incorrect Instagram password. Please check and try again."}
         except Exception as e:
-            return {"success": False, "error": f"Instagram login failed: {str(e)}"}
+            err_str = str(e)
+            if "two_factor_required" in err_str.lower() or "2fa" in err_str.lower():
+                return {
+                    "success": False,
+                    "requires_2fa": True,
+                    "error": "Two-Factor Authentication (2FA) required. Please enter the 6-digit code."
+                }
+            if "checkpoint_required" in err_str.lower() or "challenge" in err_str.lower() or "feedback_required" in err_str.lower():
+                return {
+                    "success": False,
+                    "requires_approval": True,
+                    "error": "Instagram Checkpoint / In-App Approval Required. Please approve on your mobile app."
+                }
+            return {"success": False, "error": f"Instagram login failed: {err_str}"}
     else:
         return {"success": False, "error": "Please provide a password, session ID, or session JSON."}
 

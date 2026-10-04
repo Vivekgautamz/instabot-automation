@@ -62,6 +62,7 @@ export default function App() {
   const [sessionJsonInput, setSessionJsonInput] = useState('');
   const [twoFactorCode, setTwoFactorCode] = useState('');
   const [requires2FA, setRequires2FA] = useState(false);
+  const [requiresApproval, setRequiresApproval] = useState(false);
   const [setActiveAccountCheck, setSetActiveAccountCheck] = useState(true);
   const [verifyingUser, setVerifyingUser] = useState(null);
   const [sessionStatuses, setSessionStatuses] = useState({});
@@ -448,7 +449,7 @@ export default function App() {
 
       const resData = await apiRes.json();
       if (resData.success) {
-        setAuthNotification(`🎉 Successfully created verified session for @${cleanUsername}!`);
+        setAuthNotification(`🎉 Successfully created verified session for @${cleanUsername}! Status: VERIFIED`);
         setShowAddModal(false);
         setNewUsername('');
         setDisplayName('');
@@ -457,10 +458,16 @@ export default function App() {
         setSessionJsonInput('');
         setTwoFactorCode('');
         setRequires2FA(false);
+        setRequiresApproval(false);
         fetchDashboardData();
       } else if (resData.requires_2fa) {
         setRequires2FA(true);
+        setRequiresApproval(false);
         setAuthNotification("🔐 Two-Factor Authentication (2FA) required! Please enter the 6-digit code below.");
+      } else if (resData.requires_approval) {
+        setRequiresApproval(true);
+        setRequires2FA(false);
+        setAuthNotification("📱 Mobile App Approval Required! Please tap 'This Was Me' in your Instagram mobile app, then click 'I've Approved on Phone'.");
       } else {
         setAuthNotification(`❌ Session creation failed: ${resData.error || resData.message}`);
       }
@@ -1510,12 +1517,51 @@ export default function App() {
                 <div style={{ marginBottom: '14px' }}>
                   <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#8b949e', marginBottom: '6px', textTransform: 'uppercase' }}>INSTAGRAM PASSWORD</label>
                   <input type="password" className="custom-input" placeholder="Your Instagram Password" value={newPassword} onChange={e => setNewPassword(e.target.value)} required />
+                  <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '4px' }}>
+                    🔒 Passwords are used once to authenticate with Instagram and never stored insecurely.
+                  </div>
                 </div>
 
+                {/* 2FA OTP Prompt */}
                 {requires2FA && (
-                  <div style={{ marginBottom: '14px', padding: '12px', background: 'rgba(234, 179, 8, 0.1)', border: '1px solid rgba(234, 179, 8, 0.3)', borderRadius: '10px' }}>
-                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#facc15', marginBottom: '6px', textTransform: 'uppercase' }}>2FA VERIFICATION CODE (6-DIGITS)</label>
-                    <input type="text" className="custom-input" placeholder="123456" value={twoFactorCode} onChange={e => setTwoFactorCode(e.target.value)} required />
+                  <div style={{ marginBottom: '16px', padding: '14px', background: 'rgba(234, 179, 8, 0.12)', border: '1px solid rgba(234, 179, 8, 0.4)', borderRadius: '12px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                      <span style={{ fontSize: '1rem' }}>🔐</span>
+                      <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#facc15', textTransform: 'uppercase', margin: 0 }}>
+                        2FA OTP CODE REQUIRED (6-DIGITS)
+                      </label>
+                    </div>
+                    <p style={{ fontSize: '0.75rem', color: '#cbd5e1', marginBottom: '10px', lineHeight: 1.4 }}>
+                      Instagram sent a 6-digit verification code to your SMS or Authenticator App. Enter it below to complete login:
+                    </p>
+                    <input 
+                      type="text" 
+                      className="custom-input" 
+                      placeholder="e.g. 849201" 
+                      maxLength="6"
+                      value={twoFactorCode} 
+                      onChange={e => setTwoFactorCode(e.target.value)} 
+                      style={{ letterSpacing: '4px', fontSize: '1.1rem', fontWeight: 700, textAlign: 'center', border: '1px solid #facc15' }}
+                      required 
+                      autoFocus
+                    />
+                  </div>
+                )}
+
+                {/* In-App Mobile Approval Prompt */}
+                {requiresApproval && (
+                  <div style={{ marginBottom: '16px', padding: '14px', background: 'rgba(56, 189, 248, 0.12)', border: '1px solid rgba(56, 189, 248, 0.4)', borderRadius: '12px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                      <span style={{ fontSize: '1rem' }}>📱</span>
+                      <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#38bdf8', textTransform: 'uppercase', margin: 0 }}>
+                        MOBILE APP APPROVAL REQUIRED
+                      </label>
+                    </div>
+                    <ol style={{ fontSize: '0.75rem', color: '#cbd5e1', paddingLeft: '18px', margin: '0 0 10px 0', lineHeight: 1.5 }}>
+                      <li>Open the <strong>Instagram Mobile App</strong> on your phone.</li>
+                      <li>When prompted with <em>"Someone attempted to log in"</em>, tap <strong>"This Was Me" / "Approve"</strong>.</li>
+                      <li>Click the button below to finalize login!</li>
+                    </ol>
                   </div>
                 )}
 
@@ -1525,9 +1571,17 @@ export default function App() {
                 </div>
 
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '20px' }}>
-                  <button type="button" className="btn-outline" onClick={() => { setShowAddModal(false); setRequires2FA(false); }}>Cancel</button>
+                  <button type="button" className="btn-outline" onClick={() => { setShowAddModal(false); setRequires2FA(false); setRequiresApproval(false); }}>Cancel</button>
                   <button type="submit" className="btn-white" disabled={processingStatus === 'analyzing'}>
-                    {processingStatus === 'analyzing' ? <RefreshCw size={14} className="spin" /> : '🔐 Authenticate & Create Session'}
+                    {processingStatus === 'analyzing' ? (
+                      <RefreshCw size={14} className="spin" />
+                    ) : requires2FA ? (
+                      '✅ Submit 2FA Code & Connect'
+                    ) : requiresApproval ? (
+                      '📱 I Approved on Phone — Complete Login'
+                    ) : (
+                      '🔐 Authenticate & Create Session'
+                    )}
                   </button>
                 </div>
               </form>
