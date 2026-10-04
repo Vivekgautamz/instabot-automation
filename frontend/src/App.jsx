@@ -177,6 +177,7 @@ export default function App() {
     try {
       setProcessingStatus('publishing');
       const queueItem = {
+        account_username: activeAccount.username,
         media_type: mediaType.toLowerCase(),
         filename: url,
         file_path: url,
@@ -269,6 +270,7 @@ export default function App() {
     // Queue fallback
     try {
       await supabase.from('media_queue').insert({
+        account_username: activeAccount.username,
         media_type: analysisResult ? analysisResult.type : 'post',
         filename: url,
         file_path: url,
@@ -501,19 +503,60 @@ export default function App() {
   };
 
   const handlePublishNow = async (item) => {
+    const targetUrl = item.file_path || item.filename;
+    const targetAccount = item.account_username || activeAccount.username;
+
+    setProcessingStatus('publishing');
+    setAuthNotification(`🚀 Publishing to @${targetAccount} on Instagram...`);
+
     try {
-      await supabase.from('media_queue').update({ status: 'published' }).eq('id', item.id);
-      await supabase.from('posting_history').insert({
-        media_filename: item.filename,
-        account_username: activeAccount.username,
-        status: 'published',
-        instagram_media_id: `ig_${Date.now()}`,
-        posted_at: new Date().toISOString()
+      const apiResponse = await fetch(`${API_BASE_URL}/api/process-url`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: targetUrl,
+          account: targetAccount,
+          repost_mode: repostMode,
+          custom_caption: item.caption
+        })
       });
-      setAuthNotification(`🚀 Media "${item.filename}" published successfully!`);
+
+      if (apiResponse.ok) {
+        const resData = await apiResponse.json();
+        if (resData.success) {
+          await supabase.from('media_queue').update({ status: 'published' }).eq('id', item.id);
+          await supabase.from('posting_history').insert({
+            media_filename: item.filename,
+            account_username: targetAccount,
+            status: 'published',
+            instagram_media_id: resData.instagram_media_id || `ig_${Date.now()}`,
+            posted_at: new Date().toISOString()
+          });
+          setProcessingStatus('done');
+          setAuthNotification(`🎉 Verified Published to @${targetAccount}! Live link: ${resData.instagram_url || 'Instagram'}`);
+          fetchDashboardData();
+          return;
+        } else {
+          await supabase.from('media_queue').update({ status: 'failed' }).eq('id', item.id);
+          setProcessingStatus('error');
+          setAuthNotification(`❌ Instagram Publishing Failed: ${resData.error}`);
+          fetchDashboardData();
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn("Backend API not reachable. Queueing for remote worker...", err);
+    }
+
+    // Queue fallback for remote worker
+    try {
+      await supabase.from('media_queue').update({ status: 'ready', account_username: targetAccount }).eq('id', item.id);
+      setProcessingStatus('done');
+      setAuthNotification(`🟢 Enqueued item for @${targetAccount}! Remote Instagram worker will process automatically.`);
       fetchDashboardData();
     } catch (err) {
-      setMediaQueue(mediaQueue.map(m => m.id === item.id ? { ...m, status: 'published' } : m));
+      setProcessingStatus('error');
+      setAuthNotification(`❌ Error: ${err.message}`);
     }
   };
 
