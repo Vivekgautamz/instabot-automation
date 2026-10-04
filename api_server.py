@@ -143,12 +143,13 @@ class InstaBotAPIHandler(BaseHTTPRequestHandler):
         if clean_path in ["/api/accounts/verify-session", "/api/accounts/verify", "/api/accounts/refresh-session"] or "/verify-session" in clean_path or "/refresh-session" in clean_path:
             username = data.get("username")
             if not username:
-                # Try extracting from path: /api/accounts/{username}/verify-session
                 parts = clean_path.split("/")
-                if len(parts) >= 4 and parts[2] != "verify-session":
+                if len(parts) >= 5 and parts[2] == "accounts":
+                    username = parts[3]
+                elif len(parts) >= 4 and parts[1] == "accounts":
                     username = parts[2]
             
-            if not username:
+            if not username or username in ["accounts", "verify-session", "refresh-session"]:
                 username = "poetghazipur61"
 
             res = verify_account_session(username)
@@ -159,12 +160,13 @@ class InstaBotAPIHandler(BaseHTTPRequestHandler):
             username = data.get("username")
             if not username:
                 parts = clean_path.split("/")
-                if len(parts) >= 4:
+                if len(parts) >= 5 and parts[2] == "accounts":
+                    username = parts[3]
+                elif len(parts) >= 4 and parts[1] == "accounts":
                     username = parts[2]
             
-            if not username:
-                self._send_json_response({"success": False, "error": "Username required"}, status_code=400)
-                return
+            if not username or username in ["accounts", "activate"]:
+                username = "poetghazipur61"
 
             res = activate_account_backend(username)
             self._send_json_response(res, status_code=200)
@@ -174,10 +176,12 @@ class InstaBotAPIHandler(BaseHTTPRequestHandler):
             username = data.get("username")
             if not username:
                 parts = clean_path.split("/")
-                if len(parts) >= 4:
+                if len(parts) >= 5 and parts[2] == "accounts":
+                    username = parts[3]
+                elif len(parts) >= 4 and parts[1] == "accounts":
                     username = parts[2]
             
-            if not username:
+            if not username or username in ["accounts", "delete"]:
                 self._send_json_response({"success": False, "error": "Username required"}, status_code=400)
                 return
 
