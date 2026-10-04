@@ -37,7 +37,8 @@ class InstaBotAPIHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         parsed = urlparse(self.path)
-        if parsed.path in ["/api/status", "/health", "/api/health"]:
+        clean_path = parsed.path.rstrip('/')
+        if clean_path in ["", "/api/status", "/health", "/api/health", "/status"]:
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self._send_cors_headers()
