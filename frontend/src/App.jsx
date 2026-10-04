@@ -183,12 +183,16 @@ export default function App() {
     // 2. Queue in Supabase for Python backend worker
     try {
       setProcessingStatus('publishing');
+      const cleanCaption = repostMode === 'ai_caption' 
+        ? 'Aesthetic romantic vibes & viral poetry quotes ✨ #reels #poetry #viral'
+        : 'Original Instagram caption & visual aesthetics ✨ #reels #poetry';
+
       const queueItem = {
         account_username: activeAccount.username,
         media_type: mediaType.toLowerCase(),
         filename: url,
         file_path: url,
-        caption: `Auto repost (${repostMode}): ${url}`,
+        caption: cleanCaption,
         status: 'ready',
         created_at: new Date().toISOString()
       };
@@ -646,6 +650,26 @@ export default function App() {
     } catch (err) {
       setProcessingStatus('error');
       setAuthNotification(`❌ Error: ${err.message}`);
+    }
+  };
+
+  const handleDeleteQueueItem = async (itemId) => {
+    try {
+      await supabase.from('media_queue').delete().eq('id', itemId);
+      setMediaQueue(prev => prev.filter(q => q.id !== itemId));
+      setAuthNotification('🗑️ Removed queue item successfully.');
+    } catch (err) {
+      setAuthNotification(`❌ Error removing item: ${err.message}`);
+    }
+  };
+
+  const handleClearCompletedQueue = async () => {
+    try {
+      await supabase.from('media_queue').delete().in('status', ['published', 'failed']);
+      fetchDashboardData();
+      setAuthNotification('🧹 Cleared all published & failed items from queue.');
+    } catch (err) {
+      setAuthNotification(`❌ Error clearing queue: ${err.message}`);
     }
   };
 
@@ -1161,29 +1185,157 @@ export default function App() {
           {/* TAB 7: QUEUE */}
           {activeTab === 'queue' && (
             <div className="card-panel">
-              <h2 className="card-title" style={{ marginBottom: '16px' }}>📋 Shared Media Queue</h2>
-              <table className="custom-table">
-                <thead>
-                  <tr>
-                    <th>Type</th>
-                    <th>Filename</th>
-                    <th>Caption Preview</th>
-                    <th>Status</th>
-                    <th>Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {mediaQueue.map(item => (
-                    <tr key={item.id}>
-                      <td><span className="badge badge-info">{item.media_type}</span></td>
-                      <td style={{ fontWeight: 600 }}>{item.filename}</td>
-                      <td style={{ color: 'var(--text-muted)' }}>{item.caption}</td>
-                      <td><span className="badge badge-warning">{item.status}</span></td>
-                      <td><button className="btn-white" style={{ padding: '4px 10px', fontSize: '0.75rem' }} onClick={() => handlePublishNow(item)}>Publish Now</button></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
+                <div>
+                  <h2 className="card-title" style={{ margin: 0 }}>📋 Shared Media Queue</h2>
+                  <p className="card-subtitle" style={{ marginTop: '4px', margin: 0 }}>
+                    {mediaQueue.length} items in queue • Automatically processed by Python Instagram worker
+                  </p>
+                </div>
+
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <button 
+                    className="btn-outline" 
+                    style={{ fontSize: '0.78rem', padding: '6px 12px' }}
+                    onClick={fetchDashboardData}
+                  >
+                    <RefreshCw size={13} /> Refresh Queue
+                  </button>
+                  <button 
+                    className="btn-outline" 
+                    style={{ borderColor: 'rgba(239, 68, 68, 0.3)', color: '#ef4444', fontSize: '0.78rem', padding: '6px 12px' }}
+                    onClick={handleClearCompletedQueue}
+                  >
+                    <Trash2 size={13} /> Clear Finished / Failed
+                  </button>
+                </div>
+              </div>
+
+              {mediaQueue.length === 0 ? (
+                <div style={{ padding: '40px 20px', textAlign: 'center', background: '#090a0d', border: '1px solid #1c1f2b', borderRadius: '12px', color: '#64748b' }}>
+                  <p style={{ fontSize: '1.1rem', fontWeight: 600, color: '#94a3b8', marginBottom: '6px' }}>🎉 Media Queue is Empty</p>
+                  <p style={{ fontSize: '0.85rem' }}>Paste any Instagram Reel URL in the Auto-Post tab to enqueue and publish.</p>
+                </div>
+              ) : (
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="custom-table">
+                    <thead>
+                      <tr>
+                        <th>Type</th>
+                        <th>Target Account</th>
+                        <th>Media URL</th>
+                        <th>Caption Preview</th>
+                        <th>Status</th>
+                        <th style={{ textAlign: 'right' }}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {mediaQueue.map(item => {
+                        const status = (item.status || 'ready').toLowerCase();
+                        const isPublished = status === 'published';
+                        const isFailed = status === 'failed';
+                        const isProcessing = status === 'processing';
+                        const targetUser = item.account_username || activeAccount.username;
+                        const url = item.file_path || item.filename || '';
+
+                        return (
+                          <tr key={item.id}>
+                            <td>
+                              <span className="badge badge-info" style={{ textTransform: 'uppercase' }}>
+                                {item.media_type || 'REEL'}
+                              </span>
+                            </td>
+
+                            <td style={{ fontWeight: 700, color: '#38bdf8' }}>
+                              @{targetUser}
+                            </td>
+
+                            <td style={{ maxWidth: '240px', wordBreak: 'break-all' }}>
+                              <a 
+                                href={url} 
+                                target="_blank" 
+                                rel="noreferrer" 
+                                style={{ color: '#cbd5e1', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.8rem' }}
+                                title={url}
+                              >
+                                <LinkIcon size={12} style={{ flexShrink: 0, color: '#94a3b8' }} />
+                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  {url}
+                                </span>
+                              </a>
+                            </td>
+
+                            <td style={{ color: '#94a3b8', fontSize: '0.8rem', maxWidth: '280px', lineHeight: 1.4 }}>
+                              <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+                                {item.caption || 'Original Instagram caption & aesthetic hashtags'}
+                              </div>
+                            </td>
+
+                            <td>
+                              {isPublished && (
+                                <span className="badge badge-success" style={{ background: 'rgba(34, 197, 94, 0.15)', color: '#4ade80', border: '1px solid rgba(34, 197, 94, 0.3)' }}>
+                                  PUBLISHED
+                                </span>
+                              )}
+                              {isFailed && (
+                                <span className="badge badge-danger" style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#f87171', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
+                                  FAILED
+                                </span>
+                              )}
+                              {isProcessing && (
+                                <span className="badge badge-warning" style={{ background: 'rgba(234, 179, 8, 0.15)', color: '#facc15', border: '1px solid rgba(234, 179, 8, 0.3)' }}>
+                                  PROCESSING
+                                </span>
+                              )}
+                              {!isPublished && !isFailed && !isProcessing && (
+                                <span className="badge badge-info" style={{ background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8', border: '1px solid rgba(56, 189, 248, 0.3)' }}>
+                                  QUEUED
+                                </span>
+                              )}
+                            </td>
+
+                            <td style={{ textAlign: 'right' }}>
+                              <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', alignItems: 'center' }}>
+                                {isFailed ? (
+                                  <button 
+                                    className="btn-white" 
+                                    style={{ padding: '4px 10px', fontSize: '0.75rem', background: '#f59e0b', color: '#000', border: 'none' }} 
+                                    onClick={() => handlePublishNow(item)}
+                                    title="Retry publishing this Reel"
+                                  >
+                                    🔄 Retry
+                                  </button>
+                                ) : isPublished ? (
+                                  <span style={{ fontSize: '0.75rem', color: '#4ade80', fontWeight: 700, padding: '4px 8px' }}>
+                                    ✓ Done
+                                  </span>
+                                ) : (
+                                  <button 
+                                    className="btn-white" 
+                                    style={{ padding: '4px 10px', fontSize: '0.75rem' }} 
+                                    onClick={() => handlePublishNow(item)}
+                                  >
+                                    Publish Now
+                                  </button>
+                                )}
+
+                                <button 
+                                  className="btn-outline" 
+                                  style={{ borderColor: 'rgba(239, 68, 68, 0.3)', color: '#ef4444', padding: '4px 7px', fontSize: '0.75rem' }}
+                                  onClick={() => handleDeleteQueueItem(item.id)}
+                                  title="Delete item from queue"
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
 

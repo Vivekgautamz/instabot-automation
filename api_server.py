@@ -527,10 +527,10 @@ def process_and_publish_instagram_post(url: str, username: str, repost_mode: str
                 media_type = "Carousel (1..N)"
 
         # Prepare final caption
-        if custom_caption:
+        if custom_caption and not custom_caption.startswith("Auto repost") and not (custom_caption.startswith("http://") or custom_caption.startswith("https://")):
             final_caption = custom_caption
         elif repost_mode == "ai_caption":
-            final_caption = f"{original_caption}\n\n✨ Viral Poetry & Romantic Quotes #reels #poetry #viral"
+            final_caption = f"{original_caption}\n\n✨ Viral Poetry & Romantic Quotes #reels #poetry #viral" if original_caption else "✨ Viral Romantic Quotes & Aesthetic Poetry #reels #poetry #viral"
         else:
             final_caption = original_caption if original_caption else "Aesthetic poetry vibe ✨ #reels #poetry"
 
