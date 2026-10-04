@@ -52,13 +52,19 @@ export default function App() {
   const [authNotification, setAuthNotification] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showAccountDropdown, setShowAccountDropdown] = useState(false);
-  const [authMethod, setAuthMethod] = useState('direct');
+  const [authMethod, setAuthMethod] = useState('session_id'); // 'session_id', 'password', 'json', 'meta'
   
-  // Account Form
+  // Account Form & Session Manager State
   const [newUsername, setNewUsername] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [newPassword, setNewPassword] = useState('');
+  const [sessionIdInput, setSessionIdInput] = useState('');
+  const [sessionJsonInput, setSessionJsonInput] = useState('');
+  const [twoFactorCode, setTwoFactorCode] = useState('');
+  const [requires2FA, setRequires2FA] = useState(false);
   const [setActiveAccountCheck, setSetActiveAccountCheck] = useState(true);
+  const [verifyingUser, setVerifyingUser] = useState(null);
+  const [sessionStatuses, setSessionStatuses] = useState({});
 
   // Interactive Bot & Forms State
   const [targetUrl, setTargetUrl] = useState('');
@@ -297,94 +303,67 @@ export default function App() {
   const fetchDashboardData = async () => {
     setLoading(true);
     try {
-      // 1. Fetch Accounts
-      const { data: accountsData } = await supabase
-        .from('instagram_accounts')
-        .select('*')
-        .order('created_at', { ascending: true });
-
-      if (accountsData && accountsData.length > 0) {
-        setAccounts(accountsData);
-      } else {
-        setAccounts([
-          {
-            id: '1',
-            username: 'poetghazipur61',
-            display_name: 'Poet Ghazipur 61',
-            status: 'connected',
-            session_status: 'verified',
-            session_path: 'sessions/poetghazipur61.json',
-            is_active: false
-          },
-          {
-            id: '2',
-            username: 'gautammmmm20',
-            display_name: 'gautammmmm20',
-            status: 'connected',
-            session_status: 'verified',
-            session_path: 'sessions/gautammmmm20.json',
-            is_active: true
+      // 1. Fetch Accounts from Backend API first
+      let loadedAccounts = [];
+      try {
+        const apiRes = await fetch(`${API_BASE_URL}/api/accounts`);
+        if (apiRes.ok) {
+          const apiData = await apiRes.json();
+          if (apiData.success && apiData.accounts) {
+            loadedAccounts = apiData.accounts;
           }
-        ]);
+        }
+      } catch (err) {
+        console.warn("API server accounts fetch fallback:", err);
+      }
+
+      if (loadedAccounts.length > 0) {
+        setAccounts(loadedAccounts);
+        const newStatuses = {};
+        loadedAccounts.forEach(acc => {
+          newStatuses[acc.username] = {
+            status: acc.session_status || (acc.session_exists ? 'VERIFIED' : 'LOGIN_REQUIRED'),
+            ready_to_post: acc.ready_to_post !== false,
+            badge: acc.session_status === 'VERIFIED' ? '🟢 VERIFIED' : '🟡 LOGIN REQUIRED',
+            message: acc.session_status === 'VERIFIED' ? 'Session valid & active' : 'Session expired or not configured'
+          };
+        });
+        setSessionStatuses(prev => ({ ...prev, ...newStatuses }));
+      } else {
+        const { data: accountsData } = await supabase
+          .from('instagram_accounts')
+          .select('*')
+          .order('created_at', { ascending: true });
+
+        if (accountsData && accountsData.length > 0) {
+          setAccounts(accountsData);
+        } else {
+          setAccounts([
+            { id: '1', username: 'poetghazipur61', display_name: 'Poet Ghazipur 61', is_active: true, auth_type: 'Session Cookie', status: 'connected' },
+            { id: '2', username: 'psychology.yaarr', display_name: 'Psychology Yaarr', is_active: false, auth_type: 'Session Cookie', status: 'connected' },
+            { id: '3', username: 'gautammmmm20', display_name: 'gautammmmm20', is_active: false, auth_type: 'Direct Login', status: 'connected' }
+          ]);
+        }
       }
 
       // 2. Fetch Queue
       const { data: queueData } = await supabase.from('media_queue').select('*');
       if (queueData && queueData.length > 0) {
         setMediaQueue(queueData);
-      } else {
-        setMediaQueue([
-          {
-            id: 'q1',
-            filename: 'image_01.jpg',
-            media_type: 'image',
-            caption: 'Aesthetic poetry vibe ✨ #poetghazipur61 #shayari',
-            status: 'ready',
-            created_at: new Date().toISOString()
-          },
-          {
-            id: 'q2',
-            filename: 'romance_reel_02.mp4',
-            media_type: 'reel',
-            caption: 'Trending romance reel 🖤 #reels #love #trending',
-            status: 'ready',
-            created_at: new Date().toISOString()
-          }
-        ]);
       }
 
       // 3. Fetch History
       const { data: historyData } = await supabase.from('posting_history').select('*');
       if (historyData && historyData.length > 0) {
         setHistory(historyData);
-      } else {
-        setHistory([
-          {
-            id: 'h1',
-            media_filename: 'posted_image_246.jpg',
-            account_username: 'gautammmmm20',
-            status: 'published',
-            instagram_media_id: '1802948192301923',
-            posted_at: new Date(Date.now() - 3600000).toISOString()
-          },
-          {
-            id: 'h2',
-            media_filename: 'posted_reel_102.mp4',
-            account_username: 'poetghazipur61',
-            status: 'published',
-            instagram_media_id: '1792019301923841',
-            posted_at: new Date(Date.now() - 86400000).toISOString()
-          }
-        ]);
       }
 
       // 4. Activity Logs
       setActivityLogs([
-        { id: '1', time: '14:32:00', type: 'ACCOUNT_SWITCH', message: 'Switched active Instagram account to @gautammmmm20' },
+        { id: '1', time: '14:32:00', type: 'ACCOUNT_SWITCH', message: 'Switched active Instagram account to @poetghazipur61' },
         { id: '2', time: '14:31:45', type: 'SYSTEM_SYNC', message: 'System initialization complete. Supabase database synced.' },
-        { id: '3', time: '14:30:10', type: 'SESSION_LOAD', message: 'Session loaded: sessions/gautammmmm20.json' }
+        { id: '3', time: '14:30:10', type: 'SESSION_LOAD', message: 'Session loaded: sessions/poetghazipur61.json' }
       ]);
-
     } catch (err) {
       console.warn("Using fallback state:", err);
     } finally {
@@ -392,36 +371,119 @@ export default function App() {
     }
   };
 
-  const activeAccount = accounts.find(a => a.is_active) || accounts[0] || { username: 'gautammmmm20' };
+  const activeAccount = accounts.find(a => a.is_active) || accounts[0] || { username: 'poetghazipur61' };
 
-  const handleDirectConnect = async (e) => {
+  const handleVerifySession = async (username) => {
+    const cleanU = username.trim().replace(/^@/, '');
+    setVerifyingUser(cleanU);
+    setAuthNotification(`🔍 Verifying Instagram authentication session for @${cleanU}...`);
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/accounts/verify-session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: cleanU })
+      });
+
+      const data = await res.json();
+      setSessionStatuses(prev => ({
+        ...prev,
+        [cleanU]: {
+          status: data.status || (data.success ? 'VERIFIED' : 'LOGIN_REQUIRED'),
+          badge: data.badge || (data.success ? '🟢 VERIFIED' : '🟡 LOGIN REQUIRED'),
+          ready_to_post: data.ready_to_post || false,
+          message: data.message || (data.success ? 'Session verified' : 'Session expired')
+        }
+      }));
+
+      if (data.success && data.status === 'VERIFIED') {
+        setAuthNotification(`🟢 [VERIFIED] @${cleanU} session is active and ready to publish Reels!`);
+      } else if (data.status === 'LOGIN_REQUIRED') {
+        setAuthNotification(`🟡 [LOGIN REQUIRED] Instagram session expired for @${cleanU}. Click "Refresh Session" to re-authenticate.`);
+      } else if (data.status === 'VERIFICATION_REQUIRED') {
+        setAuthNotification(`🟡 [CHECKPOINT] Instagram checkpoint challenge for @${cleanU}. Open Instagram app to verify.`);
+      } else {
+        setAuthNotification(`🔴 [SESSION ERROR] ${data.message || data.error || 'Verification failed'}`);
+      }
+    } catch (err) {
+      setAuthNotification(`❌ Backend verification server error: ${err.message}`);
+    } finally {
+      setVerifyingUser(null);
+      fetchDashboardData();
+    }
+  };
+
+  const handleCreateSession = async (e) => {
     e.preventDefault();
     const cleanUsername = newUsername.trim().replace(/^@/, '');
     if (!cleanUsername) return;
 
+    setProcessingStatus('analyzing');
+    setAuthNotification(`🔐 Authenticating and generating session for @${cleanUsername}...`);
+
+    let parsedJson = null;
+    if (authMethod === 'json' && sessionJsonInput.trim()) {
+      try {
+        parsedJson = JSON.parse(sessionJsonInput);
+      } catch (err) {
+        setAuthNotification("❌ Invalid JSON format in session JSON input.");
+        setProcessingStatus(null);
+        return;
+      }
+    }
+
     try {
-      const finalDisplayName = displayName.trim() || cleanUsername;
-      const sessionPath = `sessions/${cleanUsername}.json`;
+      const apiRes = await fetch(`${API_BASE_URL}/api/accounts/create-session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: cleanUsername,
+          password: authMethod === 'password' ? newPassword : '',
+          session_id: authMethod === 'session_id' ? (sessionIdInput || newPassword) : '',
+          session_json: parsedJson,
+          verification_code: twoFactorCode,
+          is_active: setActiveAccountCheck
+        })
+      });
 
-      await supabase.from('instagram_accounts').upsert({
-        username: cleanUsername,
-        display_name: finalDisplayName,
-        auth_type: newPassword.includes('%') || newPassword.length > 20 ? 'Session ID Cookie' : 'Direct Login',
-        status: 'connected',
-        session_status: 'verified',
-        session_path: sessionPath,
-        is_active: setActiveAccountCheck,
-        last_verified_at: new Date().toISOString()
-      }, { onConflict: 'username' });
-
-      setAuthNotification(`🔐 Account @${cleanUsername} verified and connected!`);
-      setShowAddModal(false);
-      setNewUsername('');
-      setDisplayName('');
-      setNewPassword('');
-      fetchDashboardData();
+      const resData = await apiRes.json();
+      if (resData.success) {
+        setAuthNotification(`🎉 Successfully created verified session for @${cleanUsername}!`);
+        setShowAddModal(false);
+        setNewUsername('');
+        setDisplayName('');
+        setNewPassword('');
+        setSessionIdInput('');
+        setSessionJsonInput('');
+        setTwoFactorCode('');
+        setRequires2FA(false);
+        fetchDashboardData();
+      } else if (resData.requires_2fa) {
+        setRequires2FA(true);
+        setAuthNotification("🔐 Two-Factor Authentication (2FA) required! Please enter the 6-digit code below.");
+      } else {
+        setAuthNotification(`❌ Session creation failed: ${resData.error || resData.message}`);
+      }
     } catch (err) {
-      setAuthNotification(`❌ Account save error: ${err.message}`);
+      try {
+        await supabase.from('instagram_accounts').upsert({
+          username: cleanUsername,
+          display_name: displayName.trim() || cleanUsername,
+          auth_type: authMethod === 'session_id' ? 'Session ID Cookie' : 'Direct Login',
+          status: 'connected',
+          session_status: 'verified',
+          is_active: setActiveAccountCheck,
+          last_verified_at: new Date().toISOString()
+        }, { onConflict: 'username' });
+
+        setAuthNotification(`🔐 Account @${cleanUsername} saved in database!`);
+        setShowAddModal(false);
+        fetchDashboardData();
+      } catch (dbErr) {
+        setAuthNotification(`❌ Error: ${dbErr.message}`);
+      }
+    } finally {
+      setProcessingStatus(null);
     }
   };
 
@@ -431,7 +493,6 @@ export default function App() {
     const scope = 'instagram_basic,instagram_content_publish,pages_show_list,pages_read_engagement';
 
     try {
-      // 1. Try Supabase Auth Facebook OAuth if configured
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'facebook',
         options: {
@@ -441,8 +502,6 @@ export default function App() {
       });
 
       if (error) {
-        console.info("Supabase Auth Facebook OAuth not configured, using direct Meta Graph dialog:", error.message);
-        // Fallback to direct Meta Dialog OAuth
         const authUrl = `https://www.facebook.com/v20.0/dialog/oauth?client_id=${metaAppId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scope)}&response_type=code`;
         window.open(authUrl, '_blank', 'width=600,height=700');
       }
@@ -461,20 +520,43 @@ export default function App() {
       setShowAddModal(false);
       fetchDashboardData();
     } catch (err) {
-      console.warn("Meta auth error:", err);
       setAuthNotification(`❌ OAuth Error: ${err.message}`);
     }
   };
 
   const handleSwitchActiveAccount = async (username) => {
+    const cleanU = username.trim().replace(/^@/, '');
     try {
-      setAccounts(prev => prev.map(a => ({ ...a, is_active: a.username === username })));
-      await supabase.from('instagram_accounts').update({ is_active: false }).neq('username', username);
-      await supabase.from('instagram_accounts').update({ is_active: true }).eq('username', username);
-      setAuthNotification(`🔀 Active account switched to @${username}`);
+      await fetch(`${API_BASE_URL}/api/accounts/activate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: cleanU })
+      });
+      setAccounts(prev => prev.map(a => ({ ...a, is_active: a.username === cleanU })));
+      await supabase.from('instagram_accounts').update({ is_active: false }).neq('username', cleanU);
+      await supabase.from('instagram_accounts').update({ is_active: true }).eq('username', cleanU);
+      setAuthNotification(`🔀 Active Instagram account switched to @${cleanU}`);
       setShowAccountDropdown(false);
     } catch (err) {
       console.warn("Switch error:", err);
+    }
+  };
+
+  const handleDeleteAccount = async (username) => {
+    const cleanU = username.trim().replace(/^@/, '');
+    if (!window.confirm(`Are you sure you want to remove account @${cleanU}?`)) return;
+
+    try {
+      await fetch(`${API_BASE_URL}/api/accounts/delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: cleanU })
+      });
+      await supabase.from('instagram_accounts').delete().eq('username', cleanU);
+      setAuthNotification(`🗑️ Account @${cleanU} removed successfully.`);
+      fetchDashboardData();
+    } catch (err) {
+      setAuthNotification(`❌ Remove error: ${err.message}`);
     }
   };
 
@@ -1152,95 +1234,336 @@ export default function App() {
             </div>
           )}
 
-          {/* TAB 10: SETTINGS */}
+          {/* TAB 10: SETTINGS - INSTAGRAM ACCOUNT & SESSION MANAGEMENT */}
           {activeTab === 'settings' && (
             <div className="card-panel">
-              <h2 className="card-title" style={{ marginBottom: '16px' }}>⚙️ Connected Accounts ({accounts.length})</h2>
-              <div style={{ display: 'grid', gap: '14px' }}>
-                {accounts.map(acc => (
-                  <div key={acc.username} style={{ padding: '16px', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid var(--bg-card-border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div>
-                      <h4 style={{ fontSize: '1rem', fontWeight: 700 }}>@{acc.username}</h4>
-                      <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Auth Type: <code>{acc.auth_type || 'instagrapi'}</code> | Session: <code>{acc.session_path || `sessions/${acc.username}.json`}</code></p>
-                    </div>
-                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                      <span className="badge badge-success">🟢 CONNECTED</span>
-                      <button 
-                        className="btn-outline" 
-                        style={{ borderColor: 'rgba(239, 68, 68, 0.4)', color: '#f87171', padding: '6px 12px', fontSize: '0.78rem' }}
-                        onClick={() => {
-                          setNewUsername(acc.username);
-                          setShowAddModal(true);
-                        }}
-                      >
-                        🔑 Refresh Session
-                      </button>
-                      {!acc.is_active && (
-                        <button className="btn-outline" onClick={() => handleSwitchActiveAccount(acc.username)}>Switch</button>
-                      )}
-                    </div>
-                  </div>
-                ))}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
+                <div>
+                  <h2 className="card-title" style={{ fontSize: '1.25rem', marginBottom: '4px' }}>
+                    📸 Instagram Accounts & Sessions ({accounts.length})
+                  </h2>
+                  <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+                    Manage connected accounts, authenticate login sessions, and verify live Instagram Reel posting readiness.
+                  </p>
+                </div>
+
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <button 
+                    className="btn-outline" 
+                    style={{ fontSize: '0.82rem', padding: '8px 14px' }}
+                    onClick={() => {
+                      accounts.forEach(acc => handleVerifySession(acc.username));
+                    }}
+                  >
+                    <RefreshCw size={14} className={verifyingUser ? 'spin' : ''} /> Verify All Sessions
+                  </button>
+                  <button 
+                    className="btn-white" 
+                    style={{ fontSize: '0.82rem', padding: '8px 16px' }}
+                    onClick={() => {
+                      setNewUsername('');
+                      setRequires2FA(false);
+                      setShowAddModal(true);
+                    }}
+                  >
+                    <Plus size={14} /> + Add New Instagram Account
+                  </button>
+                </div>
+              </div>
+
+              {/* Account Management Table */}
+              <div style={{ overflowX: 'auto' }}>
+                <table className="custom-table" style={{ width: '100%' }}>
+                  <thead>
+                    <tr>
+                      <th>Account</th>
+                      <th>Auth Type</th>
+                      <th>Session Status</th>
+                      <th>Posting Readiness</th>
+                      <th style={{ textAlign: 'right' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {accounts.map(acc => {
+                      const liveStatus = sessionStatuses[acc.username] || {
+                        status: acc.session_status || (acc.session_exists ? 'VERIFIED' : 'LOGIN_REQUIRED'),
+                        ready_to_post: acc.ready_to_post !== false,
+                        badge: acc.session_status === 'VERIFIED' ? '🟢 VERIFIED' : '🟡 LOGIN REQUIRED',
+                        message: acc.session_status === 'VERIFIED' ? 'Session valid' : 'Session expired'
+                      };
+                      const isCurrentVerifying = verifyingUser === acc.username;
+
+                      return (
+                        <tr key={acc.username}>
+                          {/* Account */}
+                          <td>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span style={{ fontWeight: 700, fontSize: '0.92rem', color: acc.is_active ? '#38bdf8' : '#ffffff' }}>
+                                @{acc.username}
+                              </span>
+                              {acc.is_active && (
+                                <span className="badge badge-info" style={{ fontSize: '0.7rem', padding: '2px 8px' }}>
+                                  ★ ACTIVE
+                                </span>
+                              )}
+                            </div>
+                            <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
+                              {acc.display_name || acc.username}
+                            </div>
+                          </td>
+
+                          {/* Auth Type */}
+                          <td>
+                            <span style={{ fontSize: '0.82rem', color: '#94a3b8' }}>
+                              {acc.auth_type || 'Direct Login'}
+                            </span>
+                            <div style={{ fontSize: '0.72rem', color: '#64748b', fontFamily: 'monospace' }}>
+                              sessions/{acc.username}.json
+                            </div>
+                          </td>
+
+                          {/* Session Status */}
+                          <td>
+                            {isCurrentVerifying ? (
+                              <span className="badge badge-info">
+                                <RefreshCw size={12} className="spin" /> Verifying...
+                              </span>
+                            ) : liveStatus.status === 'VERIFIED' ? (
+                              <span className="badge badge-success" title={liveStatus.message}>
+                                🟢 VERIFIED — Session valid
+                              </span>
+                            ) : liveStatus.status === 'LOGIN_REQUIRED' ? (
+                              <span className="badge" style={{ background: 'rgba(234, 179, 8, 0.15)', color: '#facc15', border: '1px solid rgba(234, 179, 8, 0.4)' }} title={liveStatus.message}>
+                                🟡 LOGIN REQUIRED
+                              </span>
+                            ) : liveStatus.status === 'VERIFICATION_REQUIRED' ? (
+                              <span className="badge" style={{ background: 'rgba(234, 179, 8, 0.15)', color: '#facc15', border: '1px solid rgba(234, 179, 8, 0.4)' }} title={liveStatus.message}>
+                                🟡 CHECKPOINT / 2FA
+                              </span>
+                            ) : (
+                              <span className="badge" style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#f87171', border: '1px solid rgba(239, 68, 68, 0.4)' }} title={liveStatus.message}>
+                                🔴 INVALID SESSION
+                              </span>
+                            )}
+                          </td>
+
+                          {/* Posting Status */}
+                          <td>
+                            {liveStatus.status === 'VERIFIED' ? (
+                              <span style={{ fontSize: '0.82rem', color: '#34d399', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                <CheckCircle2 size={14} /> Ready to Post Reels
+                              </span>
+                            ) : (
+                              <span style={{ fontSize: '0.82rem', color: '#f87171', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                <AlertCircle size={14} /> Not Ready (Re-auth needed)
+                              </span>
+                            )}
+                          </td>
+
+                          {/* Actions */}
+                          <td style={{ textAlign: 'right' }}>
+                            <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', flexWrap: 'nowrap' }}>
+                              {/* Verify Button */}
+                              <button 
+                                className="btn-outline" 
+                                style={{ padding: '5px 10px', fontSize: '0.75rem' }}
+                                disabled={isCurrentVerifying}
+                                onClick={() => handleVerifySession(acc.username)}
+                                title="Test live Instagram authentication session"
+                              >
+                                {isCurrentVerifying ? <RefreshCw size={12} className="spin" /> : '🔍 Verify'}
+                              </button>
+
+                              {/* Refresh / Create Session Button */}
+                              <button 
+                                className="btn-outline" 
+                                style={{ borderColor: 'rgba(56, 189, 248, 0.4)', color: '#38bdf8', padding: '5px 10px', fontSize: '0.75rem' }}
+                                onClick={() => {
+                                  setNewUsername(acc.username);
+                                  setRequires2FA(false);
+                                  setShowAddModal(true);
+                                }}
+                                title="Re-authenticate or update session cookie"
+                              >
+                                🔑 Create / Refresh
+                              </button>
+
+                              {/* Activate Button */}
+                              {!acc.is_active ? (
+                                <button 
+                                  className="btn-outline" 
+                                  style={{ padding: '5px 10px', fontSize: '0.75rem' }}
+                                  onClick={() => handleSwitchActiveAccount(acc.username)}
+                                  title="Set as active account for auto-posting"
+                                >
+                                  ⭐ Set Active
+                                </button>
+                              ) : (
+                                <span style={{ fontSize: '0.75rem', color: '#38bdf8', fontWeight: 700, padding: '5px 8px' }}>Active</span>
+                              )}
+
+                              {/* Delete Button */}
+                              <button 
+                                className="btn-outline" 
+                                style={{ borderColor: 'rgba(239, 68, 68, 0.3)', color: '#ef4444', padding: '5px 8px', fontSize: '0.75rem' }}
+                                onClick={() => handleDeleteAccount(acc.username)}
+                                title="Remove account"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             </div>
           )}
         </main>
       </div>
 
-      {/* ADD ACCOUNT MODAL */}
+      {/* ADD ACCOUNT & CREATE SESSION MODAL */}
       {showAddModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}>
-          <div style={{ maxWidth: '480px', width: '100%', padding: '26px', background: '#111319', border: '1px solid #1c1f2b', borderRadius: '16px', boxShadow: '0 20px 50px rgba(0,0,0,0.8)' }}>
+          <div style={{ maxWidth: '520px', width: '100%', padding: '26px', background: '#111319', border: '1px solid #1c1f2b', borderRadius: '16px', boxShadow: '0 20px 50px rgba(0,0,0,0.8)' }}>
             
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <h3 style={{ fontSize: '1.15rem', fontWeight: 700, color: '#ffffff' }}>📸 Add Instagram Account</h3>
-              <button onClick={() => setShowAddModal(false)} style={{ background: 'transparent', border: 'none', color: '#8b949e', fontSize: '1.2rem', cursor: 'pointer' }}>✕</button>
+              <h3 style={{ fontSize: '1.15rem', fontWeight: 700, color: '#ffffff' }}>📸 Instagram Account & Session Manager</h3>
+              <button onClick={() => { setShowAddModal(false); setRequires2FA(false); }} style={{ background: 'transparent', border: 'none', color: '#8b949e', fontSize: '1.2rem', cursor: 'pointer' }}>✕</button>
             </div>
 
-            <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', background: '#090a0d', padding: '4px', borderRadius: '10px', border: '1px solid #232736' }}>
+            {/* Method Tabs */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '6px', marginBottom: '20px', background: '#090a0d', padding: '4px', borderRadius: '10px', border: '1px solid #232736' }}>
               <button 
-                onClick={() => setAuthMethod('direct')} 
-                style={{ flex: 1, padding: '8px 12px', borderRadius: '8px', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer', border: 'none', background: authMethod === 'direct' ? '#ffffff' : 'transparent', color: authMethod === 'direct' ? '#000' : '#8b949e' }}
+                onClick={() => setAuthMethod('session_id')} 
+                style={{ padding: '8px 6px', borderRadius: '8px', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', border: 'none', background: authMethod === 'session_id' ? '#ffffff' : 'transparent', color: authMethod === 'session_id' ? '#000' : '#8b949e' }}
               >
-                🔐 Direct / Session Cookie
+                🍪 Session Cookie
+              </button>
+              <button 
+                onClick={() => setAuthMethod('password')} 
+                style={{ padding: '8px 6px', borderRadius: '8px', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', border: 'none', background: authMethod === 'password' ? '#ffffff' : 'transparent', color: authMethod === 'password' ? '#000' : '#8b949e' }}
+              >
+                🔐 Password + 2FA
+              </button>
+              <button 
+                onClick={() => setAuthMethod('json')} 
+                style={{ padding: '8px 6px', borderRadius: '8px', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', border: 'none', background: authMethod === 'json' ? '#ffffff' : 'transparent', color: authMethod === 'json' ? '#000' : '#8b949e' }}
+              >
+                📄 Session JSON
               </button>
               <button 
                 onClick={() => setAuthMethod('meta')} 
-                style={{ flex: 1, padding: '8px 12px', borderRadius: '8px', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer', border: 'none', background: authMethod === 'meta' ? '#ffffff' : 'transparent', color: authMethod === 'meta' ? '#000' : '#8b949e' }}
+                style={{ padding: '8px 6px', borderRadius: '8px', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', border: 'none', background: authMethod === 'meta' ? '#ffffff' : 'transparent', color: authMethod === 'meta' ? '#000' : '#8b949e' }}
               >
-                🌐 Meta Developer App
+                🌐 Meta OAuth
               </button>
             </div>
 
-            {authMethod === 'direct' && (
-              <form onSubmit={handleDirectConnect}>
+            {/* Session ID / Direct Cookie Form */}
+            {authMethod === 'session_id' && (
+              <form onSubmit={handleCreateSession}>
                 <div style={{ marginBottom: '14px' }}>
                   <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#8b949e', marginBottom: '6px', textTransform: 'uppercase' }}>INSTAGRAM USERNAME</label>
-                  <input type="text" className="custom-input" placeholder="@gautammmmm20" value={newUsername} onChange={e => setNewUsername(e.target.value)} required />
+                  <input type="text" className="custom-input" placeholder="poetghazipur61" value={newUsername} onChange={e => setNewUsername(e.target.value)} required />
                 </div>
 
                 <div style={{ marginBottom: '14px' }}>
-                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#8b949e', marginBottom: '6px', textTransform: 'uppercase' }}>DISPLAY NAME</label>
-                  <input type="text" className="custom-input" placeholder="gautammmmm20" value={displayName} onChange={e => setDisplayName(e.target.value)} />
+                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#8b949e', marginBottom: '6px', textTransform: 'uppercase' }}>SESSION ID COOKIE (RECOMMENDED - BYPASSES IP CHALLENGES)</label>
+                  <input 
+                    type="password" 
+                    className="custom-input" 
+                    placeholder="Paste browser 'sessionid' cookie value here" 
+                    value={sessionIdInput} 
+                    onChange={e => setSessionIdInput(e.target.value)} 
+                    required 
+                  />
+                  <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '4px' }}>
+                    💡 Tip: From Instagram.com → Inspect → Application → Cookies → copy <code>sessionid</code> value.
+                  </div>
                 </div>
 
-                <div style={{ marginBottom: '14px' }}>
-                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#8b949e', marginBottom: '6px', textTransform: 'uppercase' }}>SESSION FILE (AUTO-GENERATED)</label>
-                  <input type="text" readOnly className="custom-input" style={{ background: '#08090c', color: '#64748b', fontFamily: 'monospace' }} value={`sessions/${newUsername.trim().replace(/^@/, '') || 'gautammmmm20'}.json`} />
-                </div>
-
-                <div style={{ marginBottom: '16px' }}>
-                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#8b949e', marginBottom: '6px', textTransform: 'uppercase' }}>PASSWORD / SESSION ID COOKIE</label>
-                  <input type="password" className="custom-input" placeholder="Password or sessionid cookie string" value={newPassword} onChange={e => setNewPassword(e.target.value)} />
+                <div style={{ marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <input type="checkbox" id="setActiveChk1" checked={setActiveAccountCheck} onChange={e => setSetActiveAccountCheck(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
+                  <label htmlFor="setActiveChk1" style={{ fontSize: '0.82rem', color: '#cbd5e1', cursor: 'pointer' }}>Set as Active Account for Reels Auto-Posting</label>
                 </div>
 
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '20px' }}>
                   <button type="button" className="btn-outline" onClick={() => setShowAddModal(false)}>Cancel</button>
-                  <button type="submit" className="btn-white">🔐 Verify & Connect</button>
+                  <button type="submit" className="btn-white" disabled={processingStatus === 'analyzing'}>
+                    {processingStatus === 'analyzing' ? <RefreshCw size={14} className="spin" /> : '🍪 Create Session'}
+                  </button>
                 </div>
               </form>
             )}
 
+            {/* Password Login Form */}
+            {authMethod === 'password' && (
+              <form onSubmit={handleCreateSession}>
+                <div style={{ marginBottom: '14px' }}>
+                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#8b949e', marginBottom: '6px', textTransform: 'uppercase' }}>INSTAGRAM USERNAME</label>
+                  <input type="text" className="custom-input" placeholder="poetghazipur61" value={newUsername} onChange={e => setNewUsername(e.target.value)} required />
+                </div>
+
+                <div style={{ marginBottom: '14px' }}>
+                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#8b949e', marginBottom: '6px', textTransform: 'uppercase' }}>INSTAGRAM PASSWORD</label>
+                  <input type="password" className="custom-input" placeholder="Your Instagram Password" value={newPassword} onChange={e => setNewPassword(e.target.value)} required />
+                </div>
+
+                {requires2FA && (
+                  <div style={{ marginBottom: '14px', padding: '12px', background: 'rgba(234, 179, 8, 0.1)', border: '1px solid rgba(234, 179, 8, 0.3)', borderRadius: '10px' }}>
+                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#facc15', marginBottom: '6px', textTransform: 'uppercase' }}>2FA VERIFICATION CODE (6-DIGITS)</label>
+                    <input type="text" className="custom-input" placeholder="123456" value={twoFactorCode} onChange={e => setTwoFactorCode(e.target.value)} required />
+                  </div>
+                )}
+
+                <div style={{ marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <input type="checkbox" id="setActiveChk2" checked={setActiveAccountCheck} onChange={e => setSetActiveAccountCheck(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
+                  <label htmlFor="setActiveChk2" style={{ fontSize: '0.82rem', color: '#cbd5e1', cursor: 'pointer' }}>Set as Active Account for Reels Auto-Posting</label>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '20px' }}>
+                  <button type="button" className="btn-outline" onClick={() => { setShowAddModal(false); setRequires2FA(false); }}>Cancel</button>
+                  <button type="submit" className="btn-white" disabled={processingStatus === 'analyzing'}>
+                    {processingStatus === 'analyzing' ? <RefreshCw size={14} className="spin" /> : '🔐 Authenticate & Create Session'}
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* Session JSON Import */}
+            {authMethod === 'json' && (
+              <form onSubmit={handleCreateSession}>
+                <div style={{ marginBottom: '14px' }}>
+                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#8b949e', marginBottom: '6px', textTransform: 'uppercase' }}>INSTAGRAM USERNAME</label>
+                  <input type="text" className="custom-input" placeholder="poetghazipur61" value={newUsername} onChange={e => setNewUsername(e.target.value)} required />
+                </div>
+
+                <div style={{ marginBottom: '14px' }}>
+                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#8b949e', marginBottom: '6px', textTransform: 'uppercase' }}>SESSION JSON DICTIONARY</label>
+                  <textarea 
+                    className="custom-input" 
+                    rows={5} 
+                    placeholder='{"authorization_data": {"ds_user_id": "..."}, "cookies": {...}}' 
+                    value={sessionJsonInput} 
+                    onChange={e => setSessionJsonInput(e.target.value)} 
+                    required 
+                    style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '20px' }}>
+                  <button type="button" className="btn-outline" onClick={() => setShowAddModal(false)}>Cancel</button>
+                  <button type="submit" className="btn-white" disabled={processingStatus === 'analyzing'}>
+                    📄 Save Session JSON
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* Meta OAuth Option */}
             {authMethod === 'meta' && (
               <div>
                 <div style={{ padding: '16px', background: 'rgba(56, 189, 248, 0.05)', border: '1px solid rgba(56, 189, 248, 0.2)', borderRadius: '12px', marginBottom: '20px' }}>
