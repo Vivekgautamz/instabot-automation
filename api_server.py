@@ -110,7 +110,8 @@ class InstaBotAPIHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         parsed = urlparse(self.path)
-        if parsed.path == "/api/process-url" or parsed.path == "/api/repost":
+        clean_path = parsed.path.rstrip('/')
+        if clean_path in ["/api/process-url", "/api/repost", "/process-url", "/repost"]:
             content_length = int(self.headers.get("Content-Length", 0))
             post_body = self.rfile.read(content_length).decode("utf-8")
             
