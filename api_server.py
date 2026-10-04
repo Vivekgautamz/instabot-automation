@@ -46,6 +46,28 @@ class InstaBotAPIHandler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps(response).encode("utf-8"))
             return
 
+        if parsed.path in ["/docs", "/api/docs"]:
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self._send_cors_headers()
+            self.end_headers()
+            docs_html = """<!DOCTYPE html>
+<html>
+<head><title>InstaBot API Documentation</title></head>
+<body style="font-family:sans-serif; background:#0f172a; color:#f8fafc; padding:40px;">
+  <h2>🤖 InstaBot Automation API & Worker Documentation</h2>
+  <p>Status: <span style="color:#10b981;">ONLINE (Worker Active)</span></p>
+  <h3>Available Endpoints:</h3>
+  <ul>
+    <li><code>GET /health</code> - Service Health Check</li>
+    <li><code>GET /api/status</code> - Service Status JSON</li>
+    <li><code>POST /api/process-url</code> - Download & Publish Instagram Post/Reel/Carousel</li>
+  </ul>
+</body>
+</html>"""
+            self.wfile.write(docs_html.encode("utf-8"))
+            return
+
         # Serve static frontend files from frontend/dist
         dist_dir = BASE_DIR / "frontend" / "dist"
         rel_path = parsed.path.lstrip("/")
