@@ -653,11 +653,57 @@ export default function App() {
           </div>
         </header>
 
-        {/* NOTIFICATION BANNER */}
+        {/* NOTIFICATION BANNER & SESSION EXPIRED ALERT */}
         {authNotification && (
-          <div style={{ margin: '20px 28px 0', padding: '12px 20px', background: 'rgba(16, 185, 129, 0.15)', border: '1px solid rgba(16, 185, 129, 0.4)', borderRadius: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '0.88rem', fontWeight: 600, color: '#34d399' }}>{authNotification}</span>
-            <button onClick={() => setAuthNotification(null)} style={{ background: 'transparent', border: 'none', color: '#34d399', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>Dismiss</button>
+          <div style={{ 
+            margin: '20px 28px 0', 
+            padding: '14px 20px', 
+            background: (authNotification.includes('❌') || authNotification.includes('expired') || authNotification.includes('Failed'))
+              ? 'rgba(239, 68, 68, 0.15)' 
+              : 'rgba(16, 185, 129, 0.15)', 
+            border: (authNotification.includes('❌') || authNotification.includes('expired') || authNotification.includes('Failed'))
+              ? '1px solid rgba(239, 68, 68, 0.5)' 
+              : '1px solid rgba(16, 185, 129, 0.4)', 
+            borderRadius: '12px', 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center',
+            gap: '14px',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.3)'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1 }}>
+              <span style={{ fontSize: '0.88rem', fontWeight: 600, color: (authNotification.includes('❌') || authNotification.includes('expired')) ? '#f87171' : '#34d399' }}>
+                {authNotification}
+              </span>
+            </div>
+
+            {(authNotification.includes('expired') || authNotification.includes('re-authenticate') || authNotification.includes('Failed') || authNotification.includes('403')) && (
+              <button 
+                onClick={() => {
+                  setNewUsername(activeAccount.username);
+                  setShowAddModal(true);
+                }}
+                style={{
+                  background: 'linear-gradient(135deg, #ef4444, #dc2626)',
+                  color: '#ffffff',
+                  border: 'none',
+                  padding: '7px 16px',
+                  borderRadius: '8px',
+                  fontWeight: 700,
+                  fontSize: '0.8rem',
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  boxShadow: '0 4px 14px rgba(239, 68, 68, 0.4)'
+                }}
+              >
+                <Plus size={14} /> 🔑 Re-Authenticate @{activeAccount.username}
+              </button>
+            )}
+
+            <button onClick={() => setAuthNotification(null)} style={{ background: 'transparent', border: 'none', color: '#8b949e', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>Dismiss</button>
           </div>
         )}
 
@@ -1119,6 +1165,16 @@ export default function App() {
                     </div>
                     <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                       <span className="badge badge-success">🟢 CONNECTED</span>
+                      <button 
+                        className="btn-outline" 
+                        style={{ borderColor: 'rgba(239, 68, 68, 0.4)', color: '#f87171', padding: '6px 12px', fontSize: '0.78rem' }}
+                        onClick={() => {
+                          setNewUsername(acc.username);
+                          setShowAddModal(true);
+                        }}
+                      >
+                        🔑 Refresh Session
+                      </button>
                       {!acc.is_active && (
                         <button className="btn-outline" onClick={() => handleSwitchActiveAccount(acc.username)}>Switch</button>
                       )}
