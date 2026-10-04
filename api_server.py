@@ -204,9 +204,25 @@ def process_and_publish_instagram_post(url: str, username: str, repost_mode: str
 
         else:
             # REEL VIDEO
-            print(f"[*] Downloading Reel video from {url}...")
-            video_file = downloader.download_reel(url)
-            if not os.path.exists(video_file):
+            print(f"[*] Downloading Reel video from {url} using authenticated session...")
+            video_file = None
+
+            if media_pk:
+                try:
+                    video_file = str(cl.clip_download(media_pk, folder=downloads_dir))
+                except Exception as ex:
+                    print(f"[*] clip_download notice: {ex}")
+
+            if not video_file or not os.path.exists(video_file):
+                try:
+                    video_file = str(cl.clip_download_by_url(url, folder=downloads_dir))
+                except Exception as ex:
+                    print(f"[*] clip_download_by_url notice: {ex}")
+
+            if not video_file or not os.path.exists(video_file):
+                video_file = downloader.download_reel(url)
+
+            if not video_file or not os.path.exists(video_file):
                 return {"success": False, "error": "Failed to download Reel video file."}
 
             print(f"[*] Publishing Reel to @{username}...")
@@ -239,11 +255,18 @@ def process_and_publish_instagram_post(url: str, username: str, repost_mode: str
     except Exception as err:
         error_msg = str(err)
         print(f"[!] Real Instagram Repost Error: {error_msg}")
+        
+        if "login_required" in error_msg.lower() or "403" in error_msg:
+            user_friendly_error = f"Instagram session expired for @{username}. Please click '+ Add Account' in InstaBot to re-authenticate."
+        else:
+            user_friendly_error = f"Instagram API Error: {error_msg}"
+
         if sm.is_configured():
-            sm.log_activity("INSTAGRAM_PUBLISH_ERROR", f"Failed to publish to @{username}: {error_msg}")
+            sm.log_activity("INSTAGRAM_PUBLISH_ERROR", f"Failed to publish to @{username}: {user_friendly_error}")
+            
         return {
             "success": False,
-            "error": f"Instagram API Error: {error_msg}"
+            "error": user_friendly_error
         }
 
 
