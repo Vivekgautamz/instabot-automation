@@ -107,9 +107,9 @@ class InstaBotAPIHandler(BaseHTTPRequestHandler):
         # 1. Instagram Post & Reel Processing
         if clean_path in ["/api/process-url", "/api/repost", "/process-url", "/repost"]:
             url = data.get("url", "").strip()
-            account = data.get("account", "poetghazipur61").strip().replace("@", "")
+            account = (data.get("account_username") or data.get("account") or data.get("username") or "gautammmmm20").strip().replace("@", "")
             repost_mode = data.get("repost_mode", "as_is")
-            custom_caption = data.get("custom_caption", "").strip()
+            custom_caption = (data.get("custom_caption") or data.get("caption") or "").strip()
 
             if not url:
                 self._send_json_response({"success": False, "error": "No URL provided"}, status_code=400)
