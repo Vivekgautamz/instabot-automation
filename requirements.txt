@@ -4,3 +4,5 @@ ollama>=0.3.0
 pillow>=10.2.0
 instagrapi>=2.1.2
 supabase>=2.0.0
+yt-dlp>=2024.8.1
+

@@ -36,6 +36,8 @@ const CameraIcon = () => (
   </svg>
 );
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [accounts, setAccounts] = useState([]);
@@ -44,6 +46,7 @@ export default function App() {
   const [activityLogs, setActivityLogs] = useState([]);
   const [loading, setLoading] = useState(false);
   const [autoPostEnabled, setAutoPostEnabled] = useState(false);
+  const [workerOnline, setWorkerOnline] = useState(false);
 
   // Form & Modal State
   const [authNotification, setAuthNotification] = useState(null);
@@ -77,6 +80,7 @@ export default function App() {
 
   useEffect(() => {
     fetchDashboardData();
+    checkWorkerHealth();
 
     // Check for Facebook OAuth Callback URL parameters
     const urlParams = new URLSearchParams(window.location.search);
@@ -102,6 +106,20 @@ export default function App() {
     }
   }, []);
 
+  const checkWorkerHealth = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/health`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.status === 'online') {
+          setWorkerOnline(true);
+        }
+      }
+    } catch (e) {
+      setWorkerOnline(false);
+    }
+  };
+
   // Handle URL change or paste when autoPostEnabled is ON
   const handleUrlInput = (urlVal) => {
     setReelUrl(urlVal);
@@ -125,8 +143,8 @@ export default function App() {
     setAuthNotification(`⬇️ Downloading ${mediaType} & connecting to Instagram API...`);
 
     try {
-      // 1. Try calling local Python API Server
-      const apiResponse = await fetch('http://localhost:8000/api/process-url', {
+      // 1. Try calling Backend API Server
+      const apiResponse = await fetch(`${API_BASE_URL}/api/process-url`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -152,7 +170,7 @@ export default function App() {
         }
       }
     } catch (err) {
-      console.warn("Backend API server not reachable at http://localhost:8000. Falling back to Supabase queueing...", err);
+      console.warn(`Backend API server at ${API_BASE_URL} not reachable. Falling back to Supabase queueing...`, err);
     }
 
     // 2. Queue in Supabase for Python backend worker
@@ -169,7 +187,7 @@ export default function App() {
 
       await supabase.from('media_queue').insert(queueItem);
       setProcessingStatus('done');
-      setAuthNotification(`⚠️ Queued ${mediaType} in media_queue for @${activeAccount.username}! Start 'python api_server.py' locally to process real Instagram posting.`);
+      setAuthNotification(`🟢 Enqueued ${mediaType} in media_queue for @${activeAccount.username}! Remote Instagram worker will process automatically.`);
       setReelUrl('');
       setTargetUrl('');
       fetchDashboardData();
@@ -217,7 +235,7 @@ export default function App() {
     const fullCaption = `${editableCaption}\n\n${editableHashtags}`;
 
     try {
-      const apiResponse = await fetch('http://localhost:8000/api/process-url', {
+      const apiResponse = await fetch(`${API_BASE_URL}/api/process-url`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -245,7 +263,7 @@ export default function App() {
         }
       }
     } catch (err) {
-      console.warn("Backend API not running locally. Queueing item...", err);
+      console.warn("Backend API not reachable. Queueing item in Supabase...", err);
     }
 
     // Queue fallback
@@ -259,7 +277,7 @@ export default function App() {
         created_at: new Date().toISOString()
       });
       setProcessingStatus('done');
-      setAuthNotification(`⚠️ Queued for @${activeAccount.username}! Run 'python api_server.py' to complete Instagram publishing.`);
+      setAuthNotification(`🟢 Enqueued post for @${activeAccount.username}! Remote Instagram worker will process automatically.`);
       setAnalysisResult(null);
       setTargetUrl('');
       setReelUrl('');

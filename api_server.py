@@ -37,12 +37,12 @@ class InstaBotAPIHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         parsed = urlparse(self.path)
-        if parsed.path == "/api/status":
+        if parsed.path in ["/api/status", "/health", "/api/health"]:
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self._send_cors_headers()
             self.end_headers()
-            response = {"status": "online", "message": "InstaBot Backend API Service is active"}
+            response = {"status": "online", "worker": "active", "service": "InstaBot Remote Worker", "message": "InstaBot Backend API Service is active"}
             self.wfile.write(json.dumps(response).encode("utf-8"))
             return
 
@@ -307,7 +307,10 @@ def poll_supabase_queue_worker():
         time.sleep(5)
 
 
-def run_server(port=8000):
+def run_server(port=None):
+    if port is None:
+        port = int(os.getenv("PORT", 8000))
+        
     import threading
     # Start queue worker daemon thread
     queue_thread = threading.Thread(target=poll_supabase_queue_worker, daemon=True)
@@ -318,9 +321,10 @@ def run_server(port=8000):
     print("=" * 60)
     print(f"   🤖 INSTABOT PYTHON AUTOMATION BACKEND API SERVER")
     print("=" * 60)
-    print(f"   Server listening on: http://localhost:{port}")
-    print(f"   API Endpoint:        http://localhost:{port}/api/process-url")
-    print(f"   Vercel Queue Worker: Active (Polling Supabase media_queue)")
+    print(f"   Server listening on port: {port}")
+    print(f"   API Endpoint:             /api/process-url")
+    print(f"   Health Check:            /health")
+    print(f"   Vercel Queue Worker:      Active (Polling Supabase media_queue)")
     print("=" * 60)
     try:
         httpd.serve_forever()
@@ -328,4 +332,4 @@ def run_server(port=8000):
         print("\n[*] Server stopped.")
 
 if __name__ == "__main__":
-    run_server(8000)
+    run_server()
