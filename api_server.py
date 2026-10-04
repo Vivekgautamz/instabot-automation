@@ -137,7 +137,7 @@ class InstaBotAPIHandler(BaseHTTPRequestHandler):
                 return
 
             res = create_new_session_backend(username, password, session_id, session_json, verification_code, is_active)
-            self._send_json_response(res, status_code=200 if res.get("success") else 400)
+            self._send_json_response(res, status_code=200)
             return
 
         if clean_path in ["/api/accounts/verify-session", "/api/accounts/verify", "/api/accounts/refresh-session"] or "/verify-session" in clean_path or "/refresh-session" in clean_path:
@@ -152,7 +152,7 @@ class InstaBotAPIHandler(BaseHTTPRequestHandler):
                 username = "poetghazipur61"
 
             res = verify_account_session(username)
-            self._send_json_response(res, status_code=200 if res.get("success") else 400)
+            self._send_json_response(res, status_code=200)
             return
 
         if clean_path in ["/api/accounts/activate", "/api/accounts/select"] or "/activate" in clean_path:
