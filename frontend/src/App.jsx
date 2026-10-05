@@ -188,7 +188,7 @@ export default function App() {
         : 'Original Instagram caption & visual aesthetics ✨ #reels #poetry';
 
       const queueItem = {
-        account_username: activeAccount.username,
+        media_metadata: { account_username: activeAccount.username, target_account: activeAccount.username, repost_mode: repostMode },
         media_type: mediaType.toLowerCase(),
         filename: url,
         file_path: url,
@@ -281,7 +281,7 @@ export default function App() {
     // Queue fallback
     try {
       await supabase.from('media_queue').insert({
-        account_username: activeAccount.username,
+        media_metadata: { account_username: activeAccount.username, target_account: activeAccount.username, repost_mode: repostMode },
         media_type: analysisResult ? analysisResult.type : 'post',
         filename: url,
         file_path: url,
@@ -620,7 +620,7 @@ export default function App() {
           await supabase.from('media_queue').update({ status: 'published' }).eq('id', item.id);
           await supabase.from('posting_history').insert({
             media_filename: item.filename,
-            account_username: targetAccount,
+            media_metadata: { account_username: targetAccount, target_account: targetAccount },
             status: 'published',
             instagram_media_id: resData.instagram_media_id || `ig_${Date.now()}`,
             posted_at: new Date().toISOString()
@@ -643,7 +643,7 @@ export default function App() {
 
     // Queue fallback for remote worker
     try {
-      await supabase.from('media_queue').update({ status: 'ready', account_username: targetAccount }).eq('id', item.id);
+      await supabase.from('media_queue').update({ status: 'ready', media_metadata: { account_username: targetAccount, target_account: targetAccount } }).eq('id', item.id);
       setProcessingStatus('done');
       setAuthNotification(`🟢 Enqueued item for @${targetAccount}! Remote Instagram worker will process automatically.`);
       fetchDashboardData();

@@ -644,7 +644,8 @@ def poll_supabase_queue_worker():
                 for item in items:
                     item_id = item.get("id")
                     target_url = (item.get("file_path") or item.get("filename") or "").strip()
-                    account = item.get("account_username", "gautammmmm20").strip()
+                    meta = item.get("media_metadata") or {}
+                    account = (meta.get("account_username") or meta.get("target_account") or item.get("account_username") or "gautammmmm20").strip()
                     custom_caption = item.get("caption", "").strip()
 
                     if target_url and target_url.startswith("http"):

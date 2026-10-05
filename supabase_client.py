@@ -63,7 +63,15 @@ class SupabaseManager:
                 "details": details or {}
             }
             if account_id:
-                payload["account_id"] = account_id
+                if len(str(account_id)) < 30 and "-" not in str(account_id):
+                    try:
+                        acc_res = self.client.table("instagram_accounts").select("id").eq("username", str(account_id).replace("@", "")).limit(1).execute()
+                        if acc_res.data:
+                            payload["account_id"] = acc_res.data[0]["id"]
+                    except Exception:
+                        pass
+                else:
+                    payload["account_id"] = account_id
             self.client.table("activity_logs").insert(payload).execute()
         except Exception as e:
             print(f"[Supabase Error] Error logging activity: {e}")
