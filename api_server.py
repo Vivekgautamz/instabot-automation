@@ -105,7 +105,7 @@ class InstaBotAPIHandler(BaseHTTPRequestHandler):
             data = {}
 
         # 1. Instagram Post & Reel Processing
-        if clean_path in ["/api/process-url", "/api/repost", "/process-url", "/repost"]:
+        if clean_path in ["/api/interactive/auto-publish", "/api/auto-publish", "/auto-publish", "/api/process-url", "/api/repost", "/process-url", "/repost"]:
             url = data.get("url", "").strip()
             account = (data.get("account_username") or data.get("account") or data.get("username") or "gautammmmm20").strip().replace("@", "")
             repost_mode = data.get("repost_mode", "as_is")

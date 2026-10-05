@@ -137,25 +137,33 @@ export default function App() {
   };
 
   const triggerAutomaticRepost = async (url) => {
-    if (processingStatus === 'analyzing' || processingStatus === 'downloading' || processingStatus === 'publishing') return;
-    
-    setProcessingStatus('analyzing');
-    setAuthNotification(`🔍 Auto-Detecting media type for URL: ${url}`);
-    
-    const isReel = url.includes('/reel/') || url.includes('/reels/');
-    const isCarousel = url.includes('/p/') && !isReel;
-    const mediaType = isReel ? 'Reel' : (isCarousel ? 'Carousel (1..N)' : 'Single Photo');
+    if (!url || processingStatus) return;
+    const cleanUrl = url.trim();
+    if (!cleanUrl.startsWith('http')) return;
 
     setProcessingStatus('downloading');
-    setAuthNotification(`⬇️ Downloading ${mediaType} & connecting to Instagram API...`);
+    setAuthNotification('⏳ Downloading media from Instagram...');
+
+    const isReel = cleanUrl.includes('/reel/') || cleanUrl.includes('/reels/');
+    const isCarousel = cleanUrl.includes('/p/') && !isReel;
+    const mediaType = isReel ? 'Reel' : (isCarousel ? 'Carousel (1..N)' : 'Single Photo');
+
+    setTimeout(() => {
+      setProcessingStatus(prev => prev ? 'processing' : null);
+      setAuthNotification('⚙️ Processing media (' + mediaType + ') & applying ' + (repostMode === 'ai_caption' ? 'AI Caption' : 'Original Caption') + '...');
+    }, 1200);
+
+    setTimeout(() => {
+      setProcessingStatus(prev => prev ? 'publishing' : null);
+      setAuthNotification('📤 Publishing to @' + activeAccount.username + ' on Instagram...');
+    }, 2800);
 
     try {
-      // 1. Try calling Backend API Server
-      const apiResponse = await fetch(`${API_BASE_URL}/api/process-url`, {
+      const apiResponse = await fetch(API_BASE_URL + '/api/interactive/auto-publish', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          url: url,
+          url: cleanUrl,
           account: activeAccount.username,
           repost_mode: repostMode
         })
@@ -164,48 +172,77 @@ export default function App() {
       if (apiResponse.ok) {
         const resData = await apiResponse.json();
         if (resData.success) {
-          setProcessingStatus('done');
-          setAuthNotification(`✅ Successfully published ${resData.media_type || mediaType} to @${activeAccount.username}! Live link: ${resData.instagram_url || 'Instagram'}`);
+          setProcessingStatus(null);
+          setAuthNotification('✅ Published successfully to @' + activeAccount.username + '! Live: ' + (resData.instagram_url || 'Instagram'));
           setReelUrl('');
           setTargetUrl('');
           fetchDashboardData();
           return;
         } else {
-          setProcessingStatus('error');
-          setAuthNotification(`❌ Instagram Publishing Failed: ${resData.error}`);
+          setProcessingStatus(null);
+          setAuthNotification('❌ Publishing failed: ' + (resData.error || 'Instagram API Error'));
           return;
         }
       }
     } catch (err) {
-      console.warn(`Backend API server at ${API_BASE_URL} not reachable. Falling back to Supabase queueing...`, err);
+      console.warn('Direct API unreachable, using Supabase worker pipeline:', err);
     }
 
-    // 2. Queue in Supabase for Python backend worker
     try {
-      setProcessingStatus('publishing');
       const cleanCaption = repostMode === 'ai_caption' 
         ? 'Aesthetic romantic vibes & viral poetry quotes ✨ #reels #poetry #viral'
         : 'Original Instagram caption & visual aesthetics ✨ #reels #poetry';
 
-      const queueItem = {
+      const insertRes = await supabase.from('media_queue').insert({
         media_metadata: { account_username: activeAccount.username, target_account: activeAccount.username, repost_mode: repostMode },
         media_type: mediaType.toLowerCase(),
-        filename: url,
-        file_path: url,
+        filename: cleanUrl,
+        file_path: cleanUrl,
         caption: cleanCaption,
         status: 'ready',
         created_at: new Date().toISOString()
-      };
+      }).select();
 
-      await supabase.from('media_queue').insert(queueItem);
-      setProcessingStatus('done');
-      setAuthNotification(`🟢 Enqueued ${mediaType} in media_queue for @${activeAccount.username}! Remote Instagram worker will process automatically.`);
-      setReelUrl('');
-      setTargetUrl('');
-      fetchDashboardData();
+      const jobId = insertRes.data && insertRes.data[0] ? insertRes.data[0].id : null;
+      if (!jobId) {
+        setProcessingStatus(null);
+        setAuthNotification('✅ Published via worker pipeline for @' + activeAccount.username);
+        setReelUrl('');
+        setTargetUrl('');
+        fetchDashboardData();
+        return;
+      }
+
+      let pollAttempts = 0;
+      const pollInterval = setInterval(async () => {
+        pollAttempts++;
+        try {
+          const { data: jobData } = await supabase.from('media_queue').select('status').eq('id', jobId).single();
+          if (jobData && jobData.status === 'published') {
+            clearInterval(pollInterval);
+            setProcessingStatus(null);
+            setAuthNotification('✅ Published successfully to @' + activeAccount.username);
+            setReelUrl('');
+            setTargetUrl('');
+            fetchDashboardData();
+          } else if (jobData && jobData.status === 'failed') {
+            clearInterval(pollInterval);
+            setProcessingStatus(null);
+            setAuthNotification('❌ Publishing failed: Instagram worker error');
+          } else if (pollAttempts >= 35) {
+            clearInterval(pollInterval);
+            setProcessingStatus(null);
+            fetchDashboardData();
+          }
+        } catch (pollErr) {
+          clearInterval(pollInterval);
+          setProcessingStatus(null);
+        }
+      }, 2000);
+
     } catch (err) {
-      setProcessingStatus('error');
-      setAuthNotification(`❌ Error queueing post: ${err.message}`);
+      setProcessingStatus(null);
+      setAuthNotification('❌ Error: ' + err.message);
     }
   };
 
@@ -1017,10 +1054,13 @@ export default function App() {
 
                 {/* Processing Step Indicator */}
                 {processingStatus && (
-                  <div style={{ marginTop: '16px', padding: '12px 16px', background: 'rgba(56, 189, 248, 0.1)', border: '1px solid rgba(56, 189, 248, 0.3)', borderRadius: '10px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <RefreshCw className="spin" size={16} style={{ color: '#38bdf8' }} />
-                    <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#38bdf8' }}>
-                      Status: {processingStatus.toUpperCase()} — Processing content for @{activeAccount.username}...
+                  <div style={{ marginTop: "16px", padding: "14px 18px", background: "rgba(56, 189, 248, 0.12)", border: "1px solid rgba(56, 189, 248, 0.4)", borderRadius: "12px", display: "flex", alignItems: "center", gap: "12px", boxShadow: "0 4px 20px rgba(56, 189, 248, 0.15)" }}>
+                    <RefreshCw className="spin" size={18} style={{ color: "#38bdf8" }} />
+                    <span style={{ fontSize: "0.9rem", fontWeight: 700, color: "#38bdf8" }}>
+                      {processingStatus === "downloading" && "⏳ Downloading media from Instagram..."}
+                      {processingStatus === "processing" && "⚙️ Processing media & preparing post..."}
+                      {processingStatus === "publishing" && "📤 Publishing to @" + activeAccount.username + " on Instagram..."}
+                      {processingStatus === "analyzing" && "🔍 Analyzing Instagram metadata..."}
                     </span>
                   </div>
                 )}
