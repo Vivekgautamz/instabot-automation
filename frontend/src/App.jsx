@@ -38,6 +38,22 @@ const CameraIcon = () => (
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://instabot-automation.onrender.com';
 
+export const detectInstagramUrlType = (url) => {
+  if (!url || typeof url !== 'string') return null;
+  const clean = url.trim();
+  const match = clean.match(/\/(reel|reels|p|tv)\/([A-Za-z0-9_-]+)/i);
+  if (!match) {
+    if (clean.includes('/reel/') || clean.includes('/reels/')) return { type: 'reel', shortcode: '', cleanUrl: clean.split('?')[0] };
+    if (clean.includes('/p/')) return { type: 'post', shortcode: '', cleanUrl: clean.split('?')[0] };
+    return null;
+  }
+  const rawType = match[1].toLowerCase();
+  const shortcode = match[2];
+  const type = (rawType === 'reel' || rawType === 'reels') ? 'reel' : 'post';
+  const cleanUrl = `https://www.instagram.com/${type === 'post' ? 'p' : 'reel'}/${shortcode}/`;
+  return { type, shortcode, cleanUrl };
+};
+
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [accounts, setAccounts] = useState([]);
@@ -128,34 +144,46 @@ export default function App() {
   };
 
   // Handle URL change or paste when autoPostEnabled is ON
+  // URL detection and auto-trigger router
   const handleUrlInput = (urlVal) => {
     setReelUrl(urlVal);
     setTargetUrl(urlVal);
-    if (autoPostEnabled && urlVal.trim().startsWith('http')) {
-      triggerAutomaticRepost(urlVal.trim());
+    
+    const info = detectInstagramUrlType(urlVal);
+    if (info) {
+      const typeLabel = info.type === 'post' ? 'Post' : 'Reel';
+      if (autoPostEnabled && urlVal.trim().startsWith('http')) {
+        triggerAutomaticRepost(urlVal.trim(), info);
+      } else {
+        setAuthNotification(`🔍 Instagram ${typeLabel} detected`);
+      }
     }
   };
 
-  const triggerAutomaticRepost = async (url) => {
+  const triggerAutomaticRepost = async (url, detectedInfo = null) => {
     if (!url || processingStatus) return;
     const cleanUrl = url.trim();
     if (!cleanUrl.startsWith('http')) return;
 
+    const info = detectedInfo || detectInstagramUrlType(cleanUrl) || { type: 'post', shortcode: '', cleanUrl };
+    const typeLabel = info.type === 'post' ? 'post' : 'reel';
+    const typeTitle = info.type === 'post' ? 'Post' : 'Reel';
+    const accountName = activeAccount?.username || 'gautammmmm20';
+
+    // Step 1: Downloading
     setProcessingStatus('downloading');
-    setAuthNotification('⏳ Downloading media from Instagram...');
+    setAuthNotification(`📥 Downloading Instagram ${typeLabel}...`);
 
-    const isReel = cleanUrl.includes('/reel/') || cleanUrl.includes('/reels/');
-    const isCarousel = cleanUrl.includes('/p/') && !isReel;
-    const mediaType = isReel ? 'Reel' : (isCarousel ? 'Carousel (1..N)' : 'Single Photo');
-
+    // Step 2: Processing
     setTimeout(() => {
       setProcessingStatus(prev => prev ? 'processing' : null);
-      setAuthNotification('⚙️ Processing media (' + mediaType + ') & applying ' + (repostMode === 'ai_caption' ? 'AI Caption' : 'Original Caption') + '...');
+      setAuthNotification(`⚙️ Processing ${typeLabel}...`);
     }, 1200);
 
+    // Step 3: Publishing
     setTimeout(() => {
       setProcessingStatus(prev => prev ? 'publishing' : null);
-      setAuthNotification('📤 Publishing to @' + activeAccount.username + ' on Instagram...');
+      setAuthNotification(`📤 Publishing to @${accountName}...`);
     }, 2800);
 
     try {
@@ -164,7 +192,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           url: cleanUrl,
-          account: activeAccount.username,
+          account: accountName,
           repost_mode: repostMode
         })
       });
@@ -173,14 +201,14 @@ export default function App() {
         const resData = await apiResponse.json();
         if (resData.success) {
           setProcessingStatus(null);
-          setAuthNotification('✅ Published successfully to @' + activeAccount.username + '! Live: ' + (resData.instagram_url || 'Instagram'));
+          setAuthNotification(`✅ Instagram ${typeLabel} published successfully to @${accountName}` + (resData.instagram_url ? ` (${resData.instagram_url})` : ''));
           setReelUrl('');
           setTargetUrl('');
           fetchDashboardData();
           return;
         } else {
           setProcessingStatus(null);
-          setAuthNotification('❌ Publishing failed: ' + (resData.error || 'Instagram API Error'));
+          setAuthNotification(`❌ Instagram ${typeLabel} failed: ${resData.error || 'Instagram API Error'}`);
           return;
         }
       }
@@ -188,14 +216,15 @@ export default function App() {
       console.warn('Direct API unreachable, using Supabase worker pipeline:', err);
     }
 
+    // Fallback queue worker if direct backend connection isn't reachable
     try {
       const cleanCaption = repostMode === 'ai_caption' 
         ? 'Aesthetic romantic vibes & viral poetry quotes ✨ #reels #poetry #viral'
         : 'Original Instagram caption & visual aesthetics ✨ #reels #poetry';
 
       const insertRes = await supabase.from('media_queue').insert({
-        media_metadata: { account_username: activeAccount.username, target_account: activeAccount.username, repost_mode: repostMode },
-        media_type: mediaType.toLowerCase(),
+        media_metadata: { account_username: accountName, target_account: accountName, repost_mode: repostMode },
+        media_type: info.type === 'post' ? 'post' : 'reel',
         filename: cleanUrl,
         file_path: cleanUrl,
         caption: cleanCaption,
@@ -206,7 +235,7 @@ export default function App() {
       const jobId = insertRes.data && insertRes.data[0] ? insertRes.data[0].id : null;
       if (!jobId) {
         setProcessingStatus(null);
-        setAuthNotification('✅ Published via worker pipeline for @' + activeAccount.username);
+        setAuthNotification(`✅ Instagram ${typeLabel} published successfully to @${accountName}`);
         setReelUrl('');
         setTargetUrl('');
         fetchDashboardData();
@@ -221,14 +250,14 @@ export default function App() {
           if (jobData && jobData.status === 'published') {
             clearInterval(pollInterval);
             setProcessingStatus(null);
-            setAuthNotification('✅ Published successfully to @' + activeAccount.username);
+            setAuthNotification(`✅ Instagram ${typeLabel} published successfully to @${accountName}`);
             setReelUrl('');
             setTargetUrl('');
             fetchDashboardData();
           } else if (jobData && jobData.status === 'failed') {
             clearInterval(pollInterval);
             setProcessingStatus(null);
-            setAuthNotification('❌ Publishing failed: Instagram worker error');
+            setAuthNotification(`❌ Instagram ${typeLabel} failed: Worker execution error`);
           } else if (pollAttempts >= 35) {
             clearInterval(pollInterval);
             setProcessingStatus(null);
@@ -242,7 +271,7 @@ export default function App() {
 
     } catch (err) {
       setProcessingStatus(null);
-      setAuthNotification('❌ Error: ' + err.message);
+      setAuthNotification(`❌ Instagram ${typeLabel} failed: ${err.message}`);
     }
   };
 

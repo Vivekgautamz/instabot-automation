@@ -487,11 +487,74 @@ def delete_account_backend(username: str) -> dict:
     return {"success": True, "message": f"Account @{clean_u} removed successfully."}
 
 
+def detect_instagram_url_type(url: str):
+    """
+    Parses and sanitizes Instagram URLs, stripping tracking parameters.
+    Returns (url_type, shortcode, clean_url).
+    """
+    if not url:
+        return "reel", "", ""
+    url = url.strip()
+    match = re.search(r"/(?:(p|reel|reels|tv))/([A-Za-z0-9_-]+)", url)
+    if match:
+        raw_type = match.group(1).lower()
+        url_type = "post" if raw_type in ["p", "tv"] else "reel"
+        shortcode = match.group(2)
+        clean_url = f"https://www.instagram.com/{'p' if url_type == 'post' else 'reel'}/{shortcode}/"
+        return url_type, shortcode, clean_url
+    
+    clean_base = url.split("?")[0].rstrip("/")
+    if "/p/" in clean_base:
+        return "post", "", clean_base + "/"
+    return "reel", "", clean_base + "/"
+
+
+def ensure_instagram_compatible_image(image_path: Path) -> Path:
+    """Ensures image is in a supported RGB JPG format for Instagram upload."""
+    image_path = Path(image_path)
+    if not image_path.exists():
+        return image_path
+    
+    target_jpg = image_path.with_suffix(".jpg")
+    ffmpeg_exe = BASE_DIR / "ffmpeg.exe"
+    if not ffmpeg_exe.exists():
+        ffmpeg_exe = "ffmpeg"
+    
+    # If HEIC/AVIF/WEBP or non-jpg, convert using ffmpeg
+    if image_path.suffix.lower() in [".heic", ".avif", ".webp"] or image_path.suffix.lower() != ".jpg":
+        try:
+            import subprocess
+            cmd = [str(ffmpeg_exe), "-y", "-i", str(image_path), str(target_jpg)]
+            res = subprocess.run(cmd, capture_output=True, text=True)
+            if res.returncode == 0 and target_jpg.exists():
+                return target_jpg
+        except Exception as fe:
+            print(f"[*] ffmpeg image conversion notice: {fe}")
+            
+    try:
+        from PIL import Image
+        src_path = target_jpg if target_jpg.exists() else image_path
+        with Image.open(str(src_path)) as img:
+            if img.mode != "RGB":
+                img = img.convert("RGB")
+            out_file = image_path.parent / f"{image_path.stem}_ready.jpg"
+            img.save(str(out_file), "JPEG", quality=95)
+            return out_file
+    except Exception as pe:
+        print(f"[*] PIL image cleanup notice: {pe}")
+
+    return target_jpg if target_jpg.exists() else image_path
+
+
 def process_and_publish_instagram_post(url: str, username: str, repost_mode: str = "as_is", custom_caption: str = "") -> dict:
     """
     Downloads media from target Instagram URL (Photo, Video/Reel, Carousel 1..N)
     and publishes it to the specified Instagram account using instagrapi.
     """
+    url_type, shortcode, clean_url = detect_instagram_url_type(url)
+    print(f"\n[InteractiveBot] URL type: {url_type}")
+    print(f"[InteractiveBot] Shortcode: {shortcode or 'N/A'}")
+
     try:
         from instagrapi import Client
         import account_manager
@@ -500,31 +563,48 @@ def process_and_publish_instagram_post(url: str, username: str, repost_mode: str
         # 1. Get authenticated Instagram client
         cl = account_manager.get_instagram_client(username)
         if not cl:
-            return {
-                "success": False,
-                "error": f"Session not found or invalid for @{username}. Please log in via Add Account or check session file sessions/{username}.json."
-            }
+            err_msg = f"Session not found or invalid for @{username}. Please log in via Add Account or check session file sessions/{username}.json."
+            print(f"[InteractiveBot] Publish result: FAILED - {err_msg}")
+            return {"success": False, "error": err_msg}
 
         # 2. Extract media PK and media info
-        try:
-            media_pk = cl.media_pk_from_url(url)
-            media_info = cl.media_info(media_pk)
-        except Exception as e:
-            # Fallback for private or restricted posts via downloader
-            media_pk = None
-            media_info = None
-            print(f"[*] instagrapi media info warning: {e}. Attempting fallback download...")
+        media_pk = None
+        media_info = None
+        if shortcode:
+            try:
+                media_pk = cl.media_pk_from_code(shortcode)
+                media_info = cl.media_info(media_pk)
+            except Exception as ex1:
+                print(f"[*] media_pk_from_code notice: {ex1}")
+
+        if not media_pk or not media_info:
+            try:
+                media_pk = cl.media_pk_from_url(clean_url or url)
+                media_info = cl.media_info(media_pk)
+            except Exception as ex2:
+                print(f"[*] media_info fallback warning: {ex2}")
 
         media_type = "Reel"
+        media_type_log = "video"
         original_caption = ""
+        
         if media_info:
             original_caption = media_info.caption_text or ""
             if media_info.media_type == 1:
                 media_type = "Single Photo"
+                media_type_log = "image"
             elif media_info.media_type == 2:
                 media_type = "Reel"
+                media_type_log = "video"
             elif media_info.media_type == 8:
                 media_type = "Carousel (1..N)"
+                media_type_log = "carousel"
+        else:
+            if url_type == "post":
+                media_type = "Single Photo"
+                media_type_log = "image"
+
+        print(f"[InteractiveBot] Media type: {media_type_log}")
 
         # Prepare final caption
         if custom_caption and not custom_caption.startswith("Auto repost") and not (custom_caption.startswith("http://") or custom_caption.startswith("https://")):
@@ -546,26 +626,57 @@ def process_and_publish_instagram_post(url: str, username: str, repost_mode: str
             print(f"[*] Downloading Carousel album (PK: {media_pk})...")
             downloaded_paths = cl.album_download(media_pk, folder=downloads_dir)
             if not downloaded_paths:
-                return {"success": False, "error": "Failed to download Carousel album slides."}
+                err_msg = "Failed to download Carousel album slides."
+                print(f"[InteractiveBot] Publish result: FAILED - {err_msg}")
+                return {"success": False, "error": err_msg}
 
-            paths_list = [Path(p) for p in downloaded_paths if os.path.exists(p)]
-            print(f"[*] Publishing Carousel album ({len(paths_list)} slides) to @{username}...")
+            paths_list = []
+            for p in downloaded_paths:
+                f_path = Path(p)
+                if f_path.exists():
+                    if f_path.suffix.lower() in [".jpg", ".jpeg", ".png", ".heic", ".webp"]:
+                        paths_list.append(ensure_instagram_compatible_image(f_path))
+                    else:
+                        paths_list.append(f_path)
+
+            print("[InteractiveBot] Download complete")
+            print(f"[InteractiveBot] Publishing account: @{username}")
+            print(f"[*] Publishing ONE cohesive Carousel album ({len(paths_list)} slides) to @{username}...")
             published_media = cl.album_upload(paths=paths_list, caption=final_caption)
             media_code = published_media.code if published_media else str(media_pk)
             posted_url = f"https://www.instagram.com/p/{media_code}/"
 
-        elif media_info and media_info.media_type == 1:
+        elif (media_info and media_info.media_type == 1) or (not media_info and url_type == "post" and not url.lower().endswith(".mp4")):
             # SINGLE PHOTO
-            print(f"[*] Downloading Photo (PK: {media_pk})...")
-            photo_path = cl.photo_download(media_pk, folder=downloads_dir)
+            print(f"[*] Downloading Photo (PK: {media_pk or shortcode})...")
+            photo_path = None
+            if media_pk:
+                try:
+                    photo_path = cl.photo_download(media_pk, folder=downloads_dir)
+                except Exception as pex:
+                    print(f"[*] photo_download notice: {pex}")
+            if not photo_path or not os.path.exists(str(photo_path)):
+                try:
+                    photo_path = cl.photo_download_by_url(clean_url, folder=downloads_dir)
+                except Exception as pex2:
+                    print(f"[*] photo_download_by_url notice: {pex2}")
+
+            if not photo_path or not os.path.exists(str(photo_path)):
+                err_msg = "Failed to download photo image."
+                print(f"[InteractiveBot] Publish result: FAILED - {err_msg}")
+                return {"success": False, "error": err_msg}
+
+            ready_photo = ensure_instagram_compatible_image(Path(photo_path))
+            print("[InteractiveBot] Download complete")
+            print(f"[InteractiveBot] Publishing account: @{username}")
             print(f"[*] Publishing Photo to @{username}...")
-            published_media = cl.photo_upload(path=Path(photo_path), caption=final_caption)
+            published_media = cl.photo_upload(path=ready_photo, caption=final_caption)
             media_code = published_media.code if published_media else str(media_pk)
             posted_url = f"https://www.instagram.com/p/{media_code}/"
 
         else:
-            # REEL VIDEO
-            print(f"[*] Downloading Reel video from {url} using authenticated session...")
+            # REEL / VIDEO POST
+            print(f"[*] Downloading Video/Reel from {clean_url or url}...")
             video_file = None
 
             if media_pk:
@@ -576,27 +687,39 @@ def process_and_publish_instagram_post(url: str, username: str, repost_mode: str
 
             if not video_file or not os.path.exists(video_file):
                 try:
-                    video_file = str(cl.clip_download_by_url(url, folder=downloads_dir))
+                    video_file = str(cl.clip_download_by_url(clean_url or url, folder=downloads_dir))
                 except Exception as ex:
                     print(f"[*] clip_download_by_url notice: {ex}")
 
             if not video_file or not os.path.exists(video_file):
-                video_file = downloader.download_reel(url)
+                video_file = downloader.download_reel(clean_url or url)
 
             if not video_file or not os.path.exists(video_file):
-                return {"success": False, "error": "Failed to download Reel video file."}
+                err_msg = "Failed to download Video/Reel file."
+                print(f"[InteractiveBot] Publish result: FAILED - {err_msg}")
+                return {"success": False, "error": err_msg}
 
+            print("[InteractiveBot] Download complete")
+            print(f"[InteractiveBot] Publishing account: @{username}")
             print(f"[*] Publishing Reel to @{username}...")
             published_media = cl.clip_upload(path=Path(video_file), caption=final_caption)
             media_code = published_media.code if published_media else "reel"
             posted_url = f"https://www.instagram.com/reel/{media_code}/"
+
+        if not published_media:
+            err_msg = "Publishing returned empty confirmation from Instagram."
+            print(f"[InteractiveBot] Publish result: FAILED - {err_msg}")
+            return {"success": False, "error": err_msg}
+
+        print("[InteractiveBot] Publish result: SUCCESS")
+        print(f"[InteractiveBot] Live URL: {posted_url}")
 
         # 4. Save to Supabase DB & Activity Logs
         if sm.is_configured():
             sm.record_posting_history(
                 media_id=str(published_media.pk) if published_media else f"pk_{media_pk}",
                 account_id=username,
-                media_filename=url,
+                media_filename=clean_url or url,
                 status="published",
                 caption=final_caption,
                 instagram_media_id=published_media.code if published_media else str(media_pk),
@@ -615,6 +738,7 @@ def process_and_publish_instagram_post(url: str, username: str, repost_mode: str
 
     except Exception as err:
         error_msg = str(err)
+        print(f"[InteractiveBot] Publish result: FAILED - {error_msg}")
         print(f"[!] Real Instagram Repost Error: {error_msg}")
         
         if "login_required" in error_msg.lower() or "403" in error_msg:
