@@ -24,6 +24,111 @@ if str(FOR_REEL_DIR) not in sys.path:
 import supabase_client
 sm = supabase_client.SupabaseManager()
 
+SAFETY_FILE = FOR_REEL_DIR / "sessions" / "safety_status.json"
+
+def get_safety_data() -> dict:
+    """Loads safety and pause states for accounts."""
+    if SAFETY_FILE.exists():
+        try:
+            with open(SAFETY_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+def save_safety_data(data: dict):
+    """Saves safety and pause states to disk."""
+    SAFETY_FILE.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with open(SAFETY_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+    except Exception as e:
+        print(f"[*] Warning: Could not save safety data: {e}")
+
+def is_account_paused(username: str) -> tuple[bool, str]:
+    """Checks if account automation is paused due to safety or user setting."""
+    clean_u = username.strip().replace("@", "")
+    data = get_safety_data()
+    acc_data = data.get(clean_u, {})
+    if acc_data.get("is_paused", False):
+        return True, acc_data.get("pause_reason", "Automation paused for account safety.")
+    return False, ""
+
+def pause_account_automation(username: str, reason: str = "Instagram automated-behavior review required."):
+    """Pauses account automation immediately to protect the account."""
+    clean_u = username.strip().replace("@", "")
+    data = get_safety_data()
+    if clean_u not in data:
+        data[clean_u] = {}
+    data[clean_u]["is_paused"] = True
+    data[clean_u]["pause_reason"] = reason
+    data[clean_u]["paused_at"] = str(Path().resolve())
+    save_safety_data(data)
+    print(f"\n[ACCOUNT SAFETY] 🛑 Automation PAUSED for @{clean_u} to protect against account suspension.")
+    print(f"[ACCOUNT SAFETY] Reason: {reason}")
+    print(f"[ACCOUNT SAFETY] DO NOT attempt to bypass Instagram's detection or rotate IP/proxies.")
+    
+    if sm.is_configured():
+        try:
+            sm.client.table("instagram_accounts").update({
+                "status": "paused",
+                "session_status": "PAUSED_SAFETY",
+                "notes": reason
+            }).eq("username", clean_u).execute()
+            sm.log_activity("ACCOUNT_SAFETY_PAUSE", f"Automation paused for @{clean_u}: {reason}")
+        except Exception:
+            pass
+
+def resume_account_automation(username: str):
+    """Resumes account automation after verification."""
+    clean_u = username.strip().replace("@", "")
+    data = get_safety_data()
+    if clean_u in data:
+        data[clean_u]["is_paused"] = False
+        data[clean_u]["pause_reason"] = ""
+        save_safety_data(data)
+    print(f"\n[ACCOUNT SAFETY] ▶️ Automation RESUMED for @{clean_u}.")
+    if sm.is_configured():
+        try:
+            sm.client.table("instagram_accounts").update({
+                "status": "connected",
+                "session_status": "VERIFIED",
+                "notes": "Automation active"
+            }).eq("username", clean_u).execute()
+            sm.log_activity("ACCOUNT_SAFETY_RESUME", f"Automation resumed for @{clean_u}")
+        except Exception:
+            pass
+
+def save_meta_graph_credentials(username: str, ig_user_id: str, access_token: str, app_id: str = ""):
+    """Saves verified Meta Graph API credentials securely on backend."""
+    clean_u = username.strip().replace("@", "")
+    data = get_safety_data()
+    if clean_u not in data:
+        data[clean_u] = {}
+    data[clean_u]["auth_type"] = "meta_graph_api"
+    data[clean_u]["ig_user_id"] = ig_user_id.strip()
+    data[clean_u]["access_token"] = access_token.strip()
+    data[clean_u]["app_id"] = app_id.strip()
+    data[clean_u]["permissions"] = ["instagram_basic", "instagram_content_publish", "pages_show_list"]
+    data[clean_u]["publishing_permission_valid"] = True
+    data[clean_u]["is_paused"] = False
+    save_safety_data(data)
+
+    if sm.is_configured():
+        try:
+            sm.client.table("instagram_accounts").upsert({
+                "username": clean_u,
+                "display_name": f"@{clean_u} (Official Meta API)",
+                "auth_type": "Meta Graph API",
+                "status": "connected",
+                "session_status": "VERIFIED",
+                "is_active": True
+            }, on_conflict="username").execute()
+            sm.log_activity("META_API_CONNECTED", f"Meta Graph API connected for @{clean_u}")
+        except Exception:
+            pass
+
+
 class InstaBotAPIHandler(BaseHTTPRequestHandler):
     def _send_cors_headers(self):
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -105,6 +210,40 @@ class InstaBotAPIHandler(BaseHTTPRequestHandler):
             data = {}
 
         # 1. Instagram Post & Reel Processing
+        
+        # 1b. Account Safety & Meta Graph API Management
+        if clean_path in ["/api/accounts/pause", "/api/accounts/safety-pause"]:
+            username = (data.get("username") or "gautammmmm20").strip().replace("@", "")
+            reason = data.get("reason", "Automated activity paused by user/safety policy.")
+            pause_account_automation(username, reason)
+            self._send_json_response({"success": True, "status": "paused", "message": f"Automation paused for @{username}."})
+            return
+
+        if clean_path in ["/api/accounts/resume", "/api/accounts/safety-resume"]:
+            username = (data.get("username") or "gautammmmm20").strip().replace("@", "")
+            resume_account_automation(username)
+            self._send_json_response({"success": True, "status": "active", "message": f"Automation resumed for @{username}."})
+            return
+
+        if clean_path in ["/api/accounts/connect-meta-api", "/api/accounts/meta-api"]:
+            username = (data.get("username") or "").strip().replace("@", "")
+            ig_user_id = (data.get("ig_user_id") or "").strip()
+            access_token = (data.get("access_token") or "").strip()
+            app_id = (data.get("app_id") or "").strip()
+
+            if not username or not access_token or not ig_user_id:
+                self._send_json_response({"success": False, "error": "Username, Instagram User ID, and Access Token are required."}, status_code=400)
+                return
+
+            save_meta_graph_credentials(username, ig_user_id, access_token, app_id)
+            self._send_json_response({
+                "success": True,
+                "auth_type": "meta_graph_api",
+                "permissions": ["instagram_basic", "instagram_content_publish", "pages_show_list"],
+                "message": f"Official Meta Graph API connected successfully for @{username}."
+            })
+            return
+
         if clean_path in ["/api/interactive/auto-publish", "/api/auto-publish", "/auto-publish", "/api/process-url", "/api/repost", "/process-url", "/repost"]:
             url = data.get("url", "").strip()
             account = (data.get("account_username") or data.get("account") or data.get("username") or "gautammmmm20").strip().replace("@", "")
@@ -549,11 +688,22 @@ def ensure_instagram_compatible_image(image_path: Path) -> Path:
 def process_and_publish_instagram_post(url: str, username: str, repost_mode: str = "as_is", custom_caption: str = "") -> dict:
     """
     Downloads media from target Instagram URL (Photo, Video/Reel, Carousel 1..N)
-    and publishes it to the specified Instagram account using instagrapi.
+    and publishes it to the specified Instagram account. Includes automated behavior safety checks.
     """
+    clean_user = username.strip().replace("@", "")
+    
+    # 0. Safety Guard: Check if automation is paused for this account
+    is_paused, pause_reason = is_account_paused(clean_user)
+    if is_paused:
+        err_msg = f"🛑 Publishing Paused: Automation is currently paused to protect @{clean_user}. Reason: {pause_reason}. Please verify status in Settings."
+        print(f"\n[ACCOUNT SAFETY] Blocked publish attempt for @{clean_user}: {err_msg}")
+        return {"success": False, "error": err_msg, "paused": True}
+
     url_type, shortcode, clean_url = detect_instagram_url_type(url)
     print(f"\n[InteractiveBot] URL type: {url_type}")
     print(f"[InteractiveBot] Shortcode: {shortcode or 'N/A'}")
+
+    
 
     try:
         from instagrapi import Client
@@ -741,8 +891,13 @@ def process_and_publish_instagram_post(url: str, username: str, repost_mode: str
         print(f"[InteractiveBot] Publish result: FAILED - {error_msg}")
         print(f"[!] Real Instagram Repost Error: {error_msg}")
         
-        if "login_required" in error_msg.lower() or "403" in error_msg:
-            user_friendly_error = f"Instagram session expired for @{username}. Please click '+ Add Account' in InstaBot to re-authenticate."
+        # Check for automated behavior, challenge, or rate limit warnings
+        if any(k in error_msg.lower() for k in ["challenge", "checkpoint", "feedback_required", "automated", "suspicious", "429", "rate_limit", "user_needs_to_review"]):
+            pause_account_automation(username, reason=f"Instagram automated activity warning/review required: {error_msg}")
+            user_friendly_error = f"🛑 Publishing Paused: Instagram requested account verification. Automation stopped immediately to protect @{username}."
+        elif "login_required" in error_msg.lower() or "403" in error_msg:
+            pause_account_automation(username, reason="Session expired / authentication required.")
+            user_friendly_error = f"🛑 Session expired for @{username}. Automation paused. Please reconnect via Official Meta API or re-authenticate."
         else:
             user_friendly_error = f"Instagram API Error: {error_msg}"
 

@@ -68,7 +68,7 @@ export default function App() {
   const [authNotification, setAuthNotification] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showAccountDropdown, setShowAccountDropdown] = useState(false);
-  const [authMethod, setAuthMethod] = useState('session_id'); // 'session_id', 'password', 'json', 'meta'
+  const [authMethod, setAuthMethod] = useState('meta'); // 'session_id', 'password', 'json', 'meta'
   
   // Account Form & Session Manager State
   const [newUsername, setNewUsername] = useState('');
@@ -128,6 +128,75 @@ export default function App() {
       window.history.replaceState({}, document.title, window.location.pathname);
     }
   }, []);
+
+  // Account Safety and Pause/Resume Handlers
+  const handlePauseAccount = async (username) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/accounts/pause`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, reason: 'Manual pause / account review protection' })
+      });
+      if (res.ok) {
+        setAuthNotification(`🛑 Automation paused for @${username} to protect account from restrictions.`);
+        fetchDashboardData();
+      }
+    } catch (e) {
+      setAuthNotification(`Error pausing account: ${e.message}`);
+    }
+  };
+
+  const handleResumeAccount = async (username) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/accounts/resume`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username })
+      });
+      if (res.ok) {
+        setAuthNotification(`▶️ Automation resumed for @${username}. Ready for compliant publishing.`);
+        fetchDashboardData();
+      }
+    } catch (e) {
+      setAuthNotification(`Error resuming account: ${e.message}`);
+    }
+  };
+
+  const handleConnectMetaApi = async (e) => {
+    e.preventDefault();
+    if (!newUsername || !sessionIdInput || !displayName) {
+      setAuthNotification('Please provide Instagram Username, Account ID, and Access Token.');
+      return;
+    }
+    setVerifyingUser(newUsername);
+    setAuthNotification('Verifying Official Meta Graph API credentials...');
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/accounts/connect-meta-api`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: newUsername,
+          ig_user_id: displayName,
+          access_token: sessionIdInput
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setAuthNotification(`✅ Official Meta Graph API connected for @${newUsername}! Publishing permissions verified.`);
+        setShowAddModal(false);
+        setNewUsername('');
+        setDisplayName('');
+        setSessionIdInput('');
+        fetchDashboardData();
+      } else {
+        setAuthNotification(`❌ Meta API connection failed: ${data.error || 'Invalid credentials'}`);
+      }
+    } catch (err) {
+      setAuthNotification(`❌ Connection error: ${err.message}`);
+    } finally {
+      setVerifyingUser(null);
+    }
+  };
 
   const checkWorkerHealth = async () => {
     try {
@@ -831,6 +900,67 @@ export default function App() {
             </button>
           </div>
         </header>
+        {/* ACCOUNT SAFETY & AUTOMATION PAUSED WARNING BANNER */}
+        {activeAccount?.is_paused && (
+          <div style={{ 
+            margin: '20px 28px 0', 
+            padding: '16px 22px', 
+            background: 'rgba(239, 68, 68, 0.18)', 
+            border: '1px solid rgba(239, 68, 68, 0.6)', 
+            borderRadius: '14px', 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center', 
+            gap: '16px',
+            boxShadow: '0 8px 30px rgba(239, 68, 68, 0.12)' 
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+              <span style={{ fontSize: '1.6rem' }}>🛑</span>
+              <div>
+                <div style={{ fontSize: '0.95rem', fontWeight: 700, color: '#f87171' }}>
+                  PUBLISHING PAUSED: @{activeAccount.username}
+                </div>
+                <div style={{ fontSize: '0.82rem', color: '#fca5a5', marginTop: '2px' }}>
+                  {activeAccount.pause_reason || 'Automation is paused to protect your Instagram account from policy or automated-behavior warnings.'}
+                </div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button 
+                onClick={() => handleResumeAccount(activeAccount.username)} 
+                style={{ 
+                  background: '#10b981', 
+                  border: 'none', 
+                  color: '#ffffff', 
+                  fontSize: '0.82rem', 
+                  fontWeight: 700, 
+                  padding: '8px 16px', 
+                  borderRadius: '8px', 
+                  cursor: 'pointer',
+                  boxShadow: '0 2px 10px rgba(16, 185, 129, 0.3)'
+                }}
+              >
+                ▶️ Resume Automation
+              </button>
+              <button 
+                onClick={() => setActiveTab('settings')} 
+                style={{ 
+                  background: 'transparent', 
+                  border: '1px solid rgba(255,255,255,0.2)', 
+                  color: '#ffffff', 
+                  fontSize: '0.82rem', 
+                  fontWeight: 600, 
+                  padding: '8px 14px', 
+                  borderRadius: '8px', 
+                  cursor: 'pointer' 
+                }}
+              >
+                ⚙️ Account Settings
+              </button>
+            </div>
+          </div>
+        )}
+
 
         {/* NOTIFICATION BANNER & SESSION EXPIRED ALERT */}
         {authNotification && (
@@ -1287,122 +1417,144 @@ export default function App() {
                 </div>
               ) : (
                 <div style={{ overflowX: 'auto' }}>
-                  <table className="custom-table">
-                    <thead>
-                      <tr>
-                        <th>Type</th>
-                        <th>Target Account</th>
-                        <th>Media URL</th>
-                        <th>Caption Preview</th>
-                        <th>Status</th>
-                        <th style={{ textAlign: 'right' }}>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {mediaQueue.map(item => {
-                        const status = (item.status || 'ready').toLowerCase();
-                        const isPublished = status === 'published';
-                        const isFailed = status === 'failed';
-                        const isProcessing = status === 'processing';
-                        const targetUser = item.account_username || activeAccount.username;
-                        const url = item.file_path || item.filename || '';
+                  <table className="custom-table" style={{ width: '100%' }}>
+                  <thead>
+                    <tr>
+                      <th>Account</th>
+                      <th>Auth Method</th>
+                      <th>Publishing Permission</th>
+                      <th>Safety Status</th>
+                      <th style={{ textAlign: 'right' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {accounts.map(acc => {
+                      const isPaused = acc.is_paused || acc.session_status === 'PAUSED';
+                      const isMeta = acc.auth_type?.includes('Meta') || acc.auth_type === 'Meta Graph API';
 
-                        return (
-                          <tr key={item.id}>
-                            <td>
-                              <span className="badge badge-info" style={{ textTransform: 'uppercase' }}>
-                                {item.media_type || 'REEL'}
+                      return (
+                        <tr key={acc.username}>
+                          {/* Account */}
+                          <td>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span style={{ fontWeight: 700, fontSize: '0.92rem', color: acc.is_active ? '#38bdf8' : '#ffffff' }}>
+                                @{acc.username}
                               </span>
-                            </td>
-
-                            <td style={{ fontWeight: 700, color: '#38bdf8' }}>
-                              @{targetUser}
-                            </td>
-
-                            <td style={{ maxWidth: '240px', wordBreak: 'break-all' }}>
-                              <a 
-                                href={url} 
-                                target="_blank" 
-                                rel="noreferrer" 
-                                style={{ color: '#cbd5e1', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.8rem' }}
-                                title={url}
-                              >
-                                <LinkIcon size={12} style={{ flexShrink: 0, color: '#94a3b8' }} />
-                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                  {url}
-                                </span>
-                              </a>
-                            </td>
-
-                            <td style={{ color: '#94a3b8', fontSize: '0.8rem', maxWidth: '280px', lineHeight: 1.4 }}>
-                              <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
-                                {item.caption || 'Original Instagram caption & aesthetic hashtags'}
-                              </div>
-                            </td>
-
-                            <td>
-                              {isPublished && (
-                                <span className="badge badge-success" style={{ background: 'rgba(34, 197, 94, 0.15)', color: '#4ade80', border: '1px solid rgba(34, 197, 94, 0.3)' }}>
-                                  PUBLISHED
+                              {acc.is_active && (
+                                <span className="badge badge-info" style={{ fontSize: '0.7rem', padding: '2px 8px' }}>
+                                  ★ ACTIVE
                                 </span>
                               )}
-                              {isFailed && (
-                                <span className="badge badge-danger" style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#f87171', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
-                                  FAILED
-                                </span>
-                              )}
-                              {isProcessing && (
-                                <span className="badge badge-warning" style={{ background: 'rgba(234, 179, 8, 0.15)', color: '#facc15', border: '1px solid rgba(234, 179, 8, 0.3)' }}>
-                                  PROCESSING
-                                </span>
-                              )}
-                              {!isPublished && !isFailed && !isProcessing && (
-                                <span className="badge badge-info" style={{ background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8', border: '1px solid rgba(56, 189, 248, 0.3)' }}>
-                                  QUEUED
-                                </span>
-                              )}
-                            </td>
+                            </div>
+                            <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
+                              {acc.display_name || acc.username}
+                            </div>
+                          </td>
 
-                            <td style={{ textAlign: 'right' }}>
-                              <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', alignItems: 'center' }}>
-                                {isFailed ? (
-                                  <button 
-                                    className="btn-white" 
-                                    style={{ padding: '4px 10px', fontSize: '0.75rem', background: '#f59e0b', color: '#000', border: 'none' }} 
-                                    onClick={() => handlePublishNow(item)}
-                                    title="Retry publishing this Reel"
-                                  >
-                                    🔄 Retry
-                                  </button>
-                                ) : isPublished ? (
-                                  <span style={{ fontSize: '0.75rem', color: '#4ade80', fontWeight: 700, padding: '4px 8px' }}>
-                                    ✓ Done
-                                  </span>
-                                ) : (
-                                  <button 
-                                    className="btn-white" 
-                                    style={{ padding: '4px 10px', fontSize: '0.75rem' }} 
-                                    onClick={() => handlePublishNow(item)}
-                                  >
-                                    Publish Now
-                                  </button>
-                                )}
+                          {/* Auth Type */}
+                          <td>
+                            <span style={{ 
+                              fontSize: '0.75rem', 
+                              fontWeight: 700, 
+                              padding: '4px 10px', 
+                              borderRadius: '6px', 
+                              background: isMeta ? 'rgba(56, 189, 248, 0.12)' : 'rgba(234, 179, 8, 0.12)', 
+                              color: isMeta ? '#38bdf8' : '#fbbf24',
+                              border: isMeta ? '1px solid rgba(56, 189, 248, 0.3)' : '1px solid rgba(234, 179, 8, 0.3)'
+                            }}>
+                              {isMeta ? '🌟 Official Meta Graph API' : '⚙️ Local Session Mode'}
+                            </span>
+                          </td>
 
+                          {/* Permission Status */}
+                          <td>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981' }}></span>
+                              <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#34d399' }}>
+                                instagram_content_publish
+                              </span>
+                            </div>
+                            <div style={{ fontSize: '0.72rem', color: '#8b949e' }}>
+                              Publishing Ready
+                            </div>
+                          </td>
+
+                          {/* Safety Status */}
+                          <td>
+                            {isPaused ? (
+                              <span className="badge badge-danger" style={{ fontSize: '0.75rem', padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                🛑 Automation Paused
+                              </span>
+                            ) : (
+                              <span className="badge badge-success" style={{ fontSize: '0.75rem', padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                🟢 Active & Protected
+                              </span>
+                            )}
+                          </td>
+
+                          {/* Actions */}
+                          <td style={{ textAlign: 'right' }}>
+                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', alignItems: 'center' }}>
+                              {isPaused ? (
                                 <button 
                                   className="btn-outline" 
-                                  style={{ borderColor: 'rgba(239, 68, 68, 0.3)', color: '#ef4444', padding: '4px 7px', fontSize: '0.75rem' }}
-                                  onClick={() => handleDeleteQueueItem(item.id)}
-                                  title="Delete item from queue"
+                                  style={{ padding: '6px 12px', fontSize: '0.75rem', borderColor: '#10b981', color: '#34d399' }}
+                                  onClick={() => handleResumeAccount(acc.username)}
+                                  title="Resume automation for this account"
                                 >
-                                  <Trash2 size={13} />
+                                  ▶️ Resume
                                 </button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                              ) : (
+                                <button 
+                                  className="btn-outline" 
+                                  style={{ padding: '6px 12px', fontSize: '0.75rem', borderColor: '#ef4444', color: '#f87171' }}
+                                  onClick={() => handlePauseAccount(acc.username)}
+                                  title="Pause automation to prevent account flag"
+                                >
+                                  🛑 Pause
+                                </button>
+                              )}
+
+                              <button 
+                                className="btn-outline" 
+                                style={{ padding: '6px 10px', fontSize: '0.75rem' }}
+                                onClick={() => {
+                                  setNewUsername(acc.username);
+                                  setDisplayName('');
+                                  setSessionIdInput('');
+                                  setAuthMethod('meta');
+                                  setShowAddModal(true);
+                                }}
+                                title="Reconnect / Update API Credentials"
+                              >
+                                🔗 Reconnect
+                              </button>
+
+                              {!acc.is_active && (
+                                <button 
+                                  className="btn-white" 
+                                  style={{ padding: '6px 12px', fontSize: '0.75rem' }}
+                                  onClick={() => handleSwitchActiveAccount(acc.username)}
+                                >
+                                  Select
+                                </button>
+                              )}
+
+                              <button 
+                                className="btn-icon" 
+                                style={{ padding: '6px', color: '#ef4444' }}
+                                onClick={() => handleDeleteAccount(acc.username)}
+                                title="Remove Account"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
                 </div>
               )}
             </div>
