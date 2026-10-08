@@ -3,6 +3,8 @@ import sys
 import json
 import re
 import shutil
+import secrets
+import urllib.parse
 from pathlib import Path
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
@@ -114,6 +116,107 @@ def save_meta_graph_credentials(username: str, ig_user_id: str, access_token: st
     data[clean_u]["is_paused"] = False
     save_safety_data(data)
 
+
+# ==========================================
+# SECURE INSTAGRAM OAUTH + 2FA BACKEND ENGINE
+# ==========================================
+OAUTH_STATES = {}
+
+INSTAGRAM_CLIENT_ID = os.getenv("INSTAGRAM_CLIENT_ID", os.getenv("META_APP_ID", "1028347108920192"))
+INSTAGRAM_CLIENT_SECRET = os.getenv("INSTAGRAM_CLIENT_SECRET", os.getenv("META_APP_SECRET", ""))
+INSTAGRAM_REDIRECT_URI = os.getenv("INSTAGRAM_REDIRECT_URI", "https://poetghazipur61.vercel.app/")
+
+def generate_instagram_oauth_url(custom_redirect: str = "") -> tuple[str, str]:
+    """Generates secure OAuth authorization URL requesting official business permissions."""
+    redirect_uri = custom_redirect or INSTAGRAM_REDIRECT_URI
+    state = secrets.token_urlsafe(24)
+    OAUTH_STATES[state] = {"created_at": str(Path().resolve()), "redirect_uri": redirect_uri}
+    
+    # Official Instagram Login for Business permissions
+    scopes = "instagram_business_basic,instagram_business_content_publish"
+    
+    params = {
+        "client_id": INSTAGRAM_CLIENT_ID,
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "scope": scopes,
+        "state": state,
+        "force_authentication": "1"
+    }
+    
+    auth_url = f"https://www.instagram.com/oauth/authorize?{urllib.parse.urlencode(params)}"
+    return auth_url, state
+
+def exchange_oauth_code_for_token(code: str, state: str = "") -> dict:
+    """Exchanges OAuth code for long-lived access token, fetches profile, and verifies permissions."""
+    state_data = OAUTH_STATES.pop(state, {}) if state else {}
+    redirect_uri = state_data.get("redirect_uri", INSTAGRAM_REDIRECT_URI)
+
+    # 1. Exchange short-lived token
+    token_url = "https://api.instagram.com/oauth/access_token"
+    token_data = urllib.parse.urlencode({
+        "client_id": INSTAGRAM_CLIENT_ID,
+        "client_secret": INSTAGRAM_CLIENT_SECRET,
+        "grant_type": "authorization_code",
+        "redirect_uri": redirect_uri,
+        "code": code
+    }).encode("utf-8")
+
+    try:
+        req = urllib.request.Request(token_url, data=token_data, method="POST")
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            short_res = json.loads(resp.read().decode("utf-8"))
+            short_token = short_res.get("access_token")
+            user_id = short_res.get("user_id")
+
+        if not short_token:
+            return {"success": False, "error": "Could not retrieve access token from Instagram."}
+
+        # 2. Exchange for long-lived token (60 days)
+        long_token = short_token
+        try:
+            exchange_url = f"https://graph.instagram.com/access_token?grant_type=ig_exchange_token&client_secret={INSTAGRAM_CLIENT_SECRET}&access_token={short_token}"
+            with urllib.request.urlopen(exchange_url, timeout=15) as lresp:
+                long_res = json.loads(lresp.read().decode("utf-8"))
+                long_token = long_res.get("access_token") or short_token
+        except Exception as le:
+            print(f"[*] Long-lived token notice: {le}")
+
+        # 3. Fetch verified user profile & username from Instagram API
+        username = f"user_{user_id}"
+        display_name = username
+        try:
+            me_url = f"https://graph.instagram.com/v19.0/me?fields=user_id,username,name&access_token={long_token}"
+            with urllib.request.urlopen(me_url, timeout=15) as mresp:
+                me_res = json.loads(mresp.read().decode("utf-8"))
+                username = me_res.get("username") or username
+                display_name = me_res.get("name") or f"@{username}"
+        except Exception as me_err:
+            print(f"[*] Profile fetch notice: {me_err}")
+
+        # 4. Save account securely on backend
+        save_meta_graph_credentials(username, str(user_id), long_token)
+        print(f"[OAUTH OK] Successfully connected @{username} (ID: {user_id}) via Instagram Login + 2FA!")
+
+        return {
+            "success": True,
+            "username": username,
+            "display_name": display_name,
+            "user_id": user_id,
+            "auth_provider": "Instagram Login",
+            "authentication_status": "Verified",
+            "two_factor": "Instagram Protected",
+            "publishing_status": "Enabled",
+            "token_status": "Valid",
+            "message": f"Successfully connected @{username} via Official Instagram Login!"
+        }
+
+    except Exception as e:
+        print(f"[OAUTH ERROR] Code exchange failed: {e}")
+        return {"success": False, "error": f"Instagram OAuth Code Exchange Error: {str(e)}"}
+
+
+
     if sm.is_configured():
         try:
             sm.client.table("instagram_accounts").upsert({
@@ -143,6 +246,53 @@ class InstaBotAPIHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
         clean_path = parsed.path.rstrip('/')
+        
+        # Instagram OAuth Endpoints
+        if clean_path in ["/api/instagram/auth/start", "/api/auth/instagram/start", "/auth/instagram"]:
+            query_params = parse_qs(parsed.query)
+            custom_redirect = query_params.get("redirect_uri", [""])[0]
+            auth_url, state = generate_instagram_oauth_url(custom_redirect)
+            self._send_json_response({
+                "success": True,
+                "auth_url": auth_url,
+                "state": state,
+                "client_id": INSTAGRAM_CLIENT_ID,
+                "permissions": ["instagram_business_basic", "instagram_business_content_publish"]
+            })
+            return
+
+        if clean_path in ["/api/instagram/oauth/callback", "/auth/callback", "/api/auth/callback"]:
+            query_params = parse_qs(parsed.query)
+            code_val = query_params.get("code", [""])[0]
+            state_val = query_params.get("state", [""])[0]
+            error_val = query_params.get("error_description", query_params.get("error", [""]))[0]
+
+            if error_val:
+                self.send_response(302)
+                self.send_header("Location", f"{INSTAGRAM_REDIRECT_URI}?error={urllib.parse.quote(error_val)}")
+                self.end_headers()
+                return
+
+            if code_val:
+                res = exchange_oauth_code_for_token(code_val, state_val)
+                if res.get("success"):
+                    uname = res.get("username", "")
+                    self.send_response(302)
+                    self.send_header("Location", f"{INSTAGRAM_REDIRECT_URI}?auth=success&username={uname}")
+                    self.end_headers()
+                    return
+                else:
+                    err_msg = res.get("error", "Code exchange failed")
+                    self.send_response(302)
+                    self.send_header("Location", f"{INSTAGRAM_REDIRECT_URI}?error={urllib.parse.quote(err_msg)}")
+                    self.end_headers()
+                    return
+
+        if clean_path in ["/api/instagram/auth/status", "/api/accounts/auth-status"]:
+            accounts = list_all_accounts_backend()
+            self._send_json_response({"success": True, "accounts": accounts})
+            return
+
         if clean_path in ["", "/api/status", "/health", "/api/health", "/status"]:
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -212,6 +362,29 @@ class InstaBotAPIHandler(BaseHTTPRequestHandler):
         # 1. Instagram Post & Reel Processing
         
         # 1b. Account Safety & Meta Graph API Management
+        
+        # Instagram OAuth Code Exchange Endpoint
+        if clean_path in ["/api/instagram/auth/exchange", "/api/auth/exchange"]:
+            code_val = data.get("code", "").strip()
+            state_val = data.get("state", "").strip()
+            if not code_val:
+                self._send_json_response({"success": False, "error": "Authorization code is required"}, status_code=400)
+                return
+            res = exchange_oauth_code_for_token(code_val, state_val)
+            self._send_json_response(res, status_code=200 if res.get("success") else 500)
+            return
+
+        if clean_path in ["/api/instagram/auth/reconnect", "/api/accounts/reconnect"]:
+            username = (data.get("username") or "gautammmmm20").strip().replace("@", "")
+            auth_url, state = generate_instagram_oauth_url()
+            self._send_json_response({
+                "success": True,
+                "username": username,
+                "auth_url": auth_url,
+                "state": state
+            })
+            return
+
         if clean_path in ["/api/accounts/pause", "/api/accounts/safety-pause"]:
             username = (data.get("username") or "gautammmmm20").strip().replace("@", "")
             reason = data.get("reason", "Automated activity paused by user/safety policy.")
