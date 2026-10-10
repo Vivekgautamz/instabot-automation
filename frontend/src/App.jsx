@@ -12,7 +12,8 @@ import {
   FileText, 
   Settings, 
   Plus, 
-  ChevronDown, 
+  ChevronDown,
+  ChevronRight, 
   Search, 
   Sparkles, 
   RefreshCw, 
@@ -249,7 +250,7 @@ export default function App() {
       const pollInterval = setInterval(async () => {
         pollAttempts++;
         try {
-          const { data: jobData } = await supabase.from('media_queue').select('status').eq('id', jobId).single();
+          const { data: jobData } = await supabase.from('media_queue').select('status, notes, error_message').eq('id', jobId).single();
           if (jobData && jobData.status === 'published') {
             clearInterval(pollInterval);
             setProcessingStatus(null);
@@ -260,7 +261,8 @@ export default function App() {
           } else if (jobData && jobData.status === 'failed') {
             clearInterval(pollInterval);
             setProcessingStatus(null);
-            setAuthNotification(`❌ Instagram ${typeLabel} failed: Worker execution error`);
+            const realError = jobData.notes || jobData.error_message || 'Instagram API Error';
+            setAuthNotification(`❌ Instagram ${typeLabel} failed: ${realError}`);
           } else if (pollAttempts >= 35) {
             clearInterval(pollInterval);
             setProcessingStatus(null);
@@ -392,7 +394,9 @@ export default function App() {
       }
 
       if (loadedAccounts.length > 0) {
-        setAccounts(loadedAccounts);
+        const savedActive = localStorage.getItem('active_instagram_account');
+        const finalLoaded = savedActive ? loadedAccounts.map(a => ({ ...a, is_active: a.username === savedActive })) : loadedAccounts;
+        setAccounts(finalLoaded);
         const newStatuses = {};
         loadedAccounts.forEach(acc => {
           newStatuses[acc.username] = {
@@ -409,14 +413,18 @@ export default function App() {
           .select('*')
           .order('created_at', { ascending: true });
 
+        const savedActive = localStorage.getItem('active_instagram_account');
         if (accountsData && accountsData.length > 0) {
-          setAccounts(accountsData);
+          const finalAccs = savedActive ? accountsData.map(a => ({ ...a, is_active: a.username === savedActive })) : accountsData;
+          setAccounts(finalAccs);
         } else {
-          setAccounts([
+          const defaultAccs = [
             { id: '1', username: 'poetghazipur61', display_name: 'Poet Ghazipur 61', is_active: true, auth_type: 'Session Cookie', status: 'connected' },
             { id: '2', username: 'psychology.yaarr', display_name: 'Psychology Yaarr', is_active: false, auth_type: 'Session Cookie', status: 'connected' },
             { id: '3', username: 'gautammmmm20', display_name: 'gautammmmm20', is_active: false, auth_type: 'Direct Login', status: 'connected' }
-          ]);
+          ];
+          const finalAccs = savedActive ? defaultAccs.map(a => ({ ...a, is_active: a.username === savedActive })) : defaultAccs;
+          setAccounts(finalAccs);
         }
       }
 
@@ -605,21 +613,81 @@ export default function App() {
   };
 
   const handleSwitchActiveAccount = async (username) => {
-    const cleanU = username.trim().replace(/^@/, '');
+    const cleanU = (username || '').trim().replace(/^@/, '');
+    if (!cleanU) return;
+
+    // 1. Immediate optimistic UI state update
+    setAccounts(prev => prev.map(a => ({ ...a, is_active: a.username === cleanU })));
+    setShowAccountDropdown(false);
+    setAuthNotification(`🟢 Active Instagram account switched to @${cleanU}`);
+    try {
+      localStorage.setItem('active_instagram_account', cleanU);
+    } catch (e) {
+      console.warn("Storage warning:", e);
+    }
+
+    // 2. Persist to Supabase in background
+    try {
+      await supabase.from('instagram_accounts').update({ is_active: false }).neq('username', cleanU);
+      await supabase.from('instagram_accounts').update({ is_active: true }).eq('username', cleanU);
+    } catch (sbErr) {
+      console.warn("Supabase switch active account warning:", sbErr);
+    }
+
+    // 3. Inform Backend API if available
     try {
       await fetch(`${API_BASE_URL}/api/accounts/activate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: cleanU })
       });
-      setAccounts(prev => prev.map(a => ({ ...a, is_active: a.username === cleanU })));
-      await supabase.from('instagram_accounts').update({ is_active: false }).neq('username', cleanU);
-      await supabase.from('instagram_accounts').update({ is_active: true }).eq('username', cleanU);
-      setAuthNotification(`🔀 Active Instagram account switched to @${cleanU}`);
-      setShowAccountDropdown(false);
-    } catch (err) {
-      console.warn("Switch error:", err);
+    } catch (apiErr) {
+      console.warn("Backend activate endpoint warning:", apiErr);
     }
+  };
+
+  const handleResumeAccount = async (username) => {
+    const cleanU = (username || activeAccount?.username || '').trim().replace(/^@/, '');
+    if (!cleanU) return;
+    setAccounts(prev => prev.map(a => a.username === cleanU ? { ...a, is_paused: false, pause_reason: null } : a));
+    setAuthNotification(`🟢 Automation resumed for @${cleanU}`);
+    try {
+      await supabase.from('instagram_accounts').update({ is_paused: false, pause_reason: null }).eq('username', cleanU);
+      await fetch(`${API_BASE_URL}/api/accounts/resume`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: cleanU })
+      });
+    } catch (err) {
+      console.warn("Resume account sync:", err);
+    }
+  };
+
+  const handlePauseAccount = async (username) => {
+    const cleanU = (username || activeAccount?.username || '').trim().replace(/^@/, '');
+    if (!cleanU) return;
+    setAccounts(prev => prev.map(a => a.username === cleanU ? { ...a, is_paused: true, pause_reason: 'Manually paused by user' } : a));
+    setAuthNotification(`⏸️ Automation paused for @${cleanU}`);
+    try {
+      await supabase.from('instagram_accounts').update({ is_paused: true, pause_reason: 'Manually paused by user' }).eq('username', cleanU);
+      await fetch(`${API_BASE_URL}/api/accounts/pause`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: cleanU })
+      });
+    } catch (err) {
+      console.warn("Pause account sync:", err);
+    }
+  };
+
+  const handleContinueWithInstagram = () => {
+    if (activeAccount?.username) {
+      setNewUsername(activeAccount.username);
+    }
+    setDisplayName('');
+    setSessionIdInput('');
+    setAuthMethod('meta');
+    setShowAddModal(true);
   };
 
   const handleDeleteAccount = async (username) => {

@@ -947,7 +947,7 @@ def process_and_publish_instagram_post(url: str, username: str, repost_mode: str
         if media_info and media_info.media_type == 8:
             # CAROUSEL (Album of photos/videos)
             print(f"[*] Downloading Carousel album (PK: {media_pk})...")
-            downloaded_paths = cl.album_download(media_pk, folder=downloads_dir)
+            downloaded_paths = cl.album_download(media_pk, folder=str(downloads_dir))
             if not downloaded_paths:
                 err_msg = "Failed to download Carousel album slides."
                 print(f"[InteractiveBot] Publish result: FAILED - {err_msg}")
@@ -975,12 +975,12 @@ def process_and_publish_instagram_post(url: str, username: str, repost_mode: str
             photo_path = None
             if media_pk:
                 try:
-                    photo_path = cl.photo_download(media_pk, folder=downloads_dir)
+                    photo_path = cl.photo_download(media_pk, folder=str(downloads_dir))
                 except Exception as pex:
                     print(f"[*] photo_download notice: {pex}")
             if not photo_path or not os.path.exists(str(photo_path)):
                 try:
-                    photo_path = cl.photo_download_by_url(clean_url, folder=downloads_dir)
+                    photo_path = cl.photo_download_by_url(clean_url, folder=str(downloads_dir))
                 except Exception as pex2:
                     print(f"[*] photo_download_by_url notice: {pex2}")
 
@@ -1004,13 +1004,13 @@ def process_and_publish_instagram_post(url: str, username: str, repost_mode: str
 
             if media_pk:
                 try:
-                    video_file = str(cl.clip_download(media_pk, folder=downloads_dir))
+                    video_file = str(cl.clip_download(media_pk, folder=str(downloads_dir)))
                 except Exception as ex:
                     print(f"[*] clip_download notice: {ex}")
 
             if not video_file or not os.path.exists(video_file):
                 try:
-                    video_file = str(cl.clip_download_by_url(clean_url or url, folder=downloads_dir))
+                    video_file = str(cl.clip_download_by_url(clean_url or url, folder=str(downloads_dir)))
                 except Exception as ex:
                     print(f"[*] clip_download_by_url notice: {ex}")
 
@@ -1112,10 +1112,12 @@ def poll_supabase_queue_worker():
                             }).eq("id", item_id).execute()
                             print(f"[QUEUE WORKER OK] Post #{item_id} published successfully! Link: {result.get('instagram_url')}")
                         else:
+                            err_text = result.get("error", "Instagram API Error")
                             sm.client.table("media_queue").update({
-                                "status": "failed"
+                                "status": "failed",
+                                "notes": err_text
                             }).eq("id", item_id).execute()
-                            print(f"[QUEUE WORKER FAIL] Post #{item_id} failed: {result.get('error')}")
+                            print(f"[QUEUE WORKER FAIL] Post #{item_id} failed: {err_text}")
         except Exception as e:
             pass
         time.sleep(5)
